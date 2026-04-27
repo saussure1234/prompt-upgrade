@@ -1,0 +1,2838 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>動画コピー生成ツール</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; margin: 0; padding: 24px; background: #f5f5f7; color: #1d1d1f; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  h2 { font-size: 16px; margin: 24px 0 8px; }
+  .page { max-width: 1400px; margin: 0 auto; }
+  .card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .full { grid-column: span 2; }
+  label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: #555; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid #d2d2d7; border-radius: 8px; font-size: 13px; font-family: inherit; background: #fff; }
+  textarea { resize: vertical; min-height: 60px; }
+  button { padding: 10px 20px; border-radius: 8px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: #0071e3; color: #fff; }
+  .btn-primary:disabled { background: #999; cursor: not-allowed; }
+  .btn-secondary { background: #e8e8ed; color: #1d1d1f; }
+  .toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab { padding: 8px 16px; border-radius: 8px; cursor: pointer; background: #e8e8ed; font-weight: 600; font-size: 13px; }
+  .tab.active { background: #0071e3; color: #fff; }
+  .hidden { display: none; }
+  .prompt-box { background: #1d1d1f; color: #f5f5f7; padding: 12px; border-radius: 8px; font-family: "SF Mono", Menlo, monospace; font-size: 11px; white-space: pre-wrap; max-height: 300px; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { border: 1px solid #e0e0e5; padding: 8px; text-align: left; vertical-align: top; }
+  th { background: #f5f5f7; font-weight: 600; position: sticky; top: 0; }
+  .pattern-group { border-left: 3px solid #0071e3; }
+  .pattern-header { background: #eef5ff !important; font-weight: 700; }
+  .char-ok { color: #1d1d1f; }
+  .char-ng { color: #d70015; font-weight: 700; }
+  .cell-content { display: block; margin-bottom: 2px; }
+  .cell-meta { font-size: 10px; color: #888; }
+  .status { padding: 8px 12px; border-radius: 8px; margin-top: 8px; font-size: 13px; }
+  .status-pending { background: #fff3cd; color: #856404; }
+  .status-ok { background: #d4edda; color: #155724; }
+  .status-err { background: #f8d7da; color: #721c24; }
+  .row-actions { display: flex; gap: 4px; }
+  .mini-btn { padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #d2d2d7; background: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<!-- Password Gate -->
+<div id="auth-gate" style="position:fixed;inset:0;background:#1d1d1f;display:flex;align-items:center;justify-content:center;z-index:9999;">
+  <div style="background:#fff;padding:32px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.3);max-width:360px;width:90%;text-align:center;font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans',sans-serif;">
+    <h2 style="margin:0 0 8px;font-size:18px;color:#1d1d1f;">アクセス制限</h2>
+    <p style="font-size:13px;color:#666;margin:0 0 20px;">パスワードを入力してください</p>
+    <input id="auth-password" type="password" placeholder="パスワード" style="width:100%;padding:10px;border:1px solid #d2d2d7;border-radius:8px;font-size:14px;margin-bottom:12px;font-family:inherit;">
+    <button id="auth-submit" style="width:100%;padding:10px;background:#0071e3;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">入る</button>
+    <p id="auth-error" style="color:#d70015;font-size:12px;margin:12px 0 0;display:none;">パスワードが違います</p>
+  </div>
+</div>
+<script>
+(function(){
+  var PASSWORD = 'samurai2026';
+  var STORAGE_KEY = 'pu_auth_ok_v1';
+  var gate = document.getElementById('auth-gate');
+  if (localStorage.getItem(STORAGE_KEY) === '1') { gate.style.display = 'none'; return; }
+  document.documentElement.style.overflow = 'hidden';
+  var input = document.getElementById('auth-password');
+  var submit = document.getElementById('auth-submit');
+  var error = document.getElementById('auth-error');
+  function tryAuth(){
+    if (input.value === PASSWORD) {
+      localStorage.setItem(STORAGE_KEY, '1');
+      gate.style.display = 'none';
+      document.documentElement.style.overflow = '';
+    } else {
+      error.style.display = 'block';
+      input.value = '';
+      input.focus();
+    }
+  }
+  submit.addEventListener('click', tryAuth);
+  input.addEventListener('keydown', function(e){ if (e.key === 'Enter') tryAuth(); });
+  setTimeout(function(){ input.focus(); }, 50);
+})();
+</script>
+
+<div class="page">
+  <h1>動画コピー生成ツール（パターン分割版） <span style="font-size:11px;color:#888;font-weight:normal;">v2</span></h1>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="input">① 入力</div>
+    <div class="tab" data-tab="prompt">② プロンプト確認</div>
+    <div class="tab" data-tab="output">③ 出力シート</div>
+  </div>
+
+  <!-- INPUT TAB -->
+  <div class="tab-content" data-content="input">
+    <div class="card">
+      <h2>基本設定</h2>
+      <div class="grid">
+        <div>
+          <label>video_length</label>
+          <select id="video_length">
+            <option value="20s">20秒版（Hook1本）</option>
+            <option value="40s" selected>40秒版（Hook1+Hook2）</option>
+          </select>
+        </div>
+        <div>
+          <label>register_style（文体）</label>
+          <select id="register_style">
+            <option value="polite">polite（です/ます）</option>
+            <option value="casual">casual（だよ/じゃん）</option>
+            <option value="neutral">neutral（だ/である）</option>
+          </select>
+        </div>
+        <div>
+          <label>cta_type</label>
+          <input id="cta_type" placeholder="例：無料診断、資料請求、デモ" value="無料診断">
+        </div>
+        <div>
+          <label>voice_style（任意）</label>
+          <input id="voice_style" placeholder="例：優しい・端的・熱量高め">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>LP / ポジショニング情報</h2>
+      <div class="grid">
+        <div class="full">
+          <label>own_lp_url（自社LPのURL）</label>
+          <div style="display:flex;gap:8px;">
+            <input id="own_lp_url" placeholder="https://example.com/lp" style="flex:1;">
+            <button class="btn-secondary" id="btn-fetch-lp" style="white-space:nowrap;">URL→要約</button>
+          </div>
+          <p style="font-size:11px;color:#888;margin-top:4px;">※ボタンを押すとGeminiがLPを読み取り、下の要約欄に自動入力します</p>
+        </div>
+        <div class="full">
+          <label>own_lp_summary（自社LP要約・URL分析で自動入力 or 手動入力）</label>
+          <textarea id="own_lp_summary" rows="4" placeholder="サービスの概要、強み、機能、実績など"></textarea>
+        </div>
+        <div class="full" id="lp-analysis-wrap" style="display:none;">
+          <label>📊 LP構造化分析（URL分析時に自動表示）</label>
+          <div id="lp-analysis"></div>
+        </div>
+        <div class="full">
+          <label>competitors_summary（競合要約・任意）</label>
+          <textarea id="competitors_summary" rows="2"></textarea>
+        </div>
+        <div>
+          <label>positioning_final（ポジショニング）</label>
+          <textarea id="positioning_final" rows="3"></textarea>
+        </div>
+        <div>
+          <label>one_line_promises（一行約束）</label>
+          <textarea id="one_line_promises" rows="3"></textarea>
+        </div>
+        <div>
+          <label>selected_tobe_4（ToBe像）</label>
+          <textarea id="selected_tobe_4" rows="3"></textarea>
+        </div>
+        <div>
+          <label>proof_assets（実績・証拠）</label>
+          <textarea id="proof_assets" rows="3"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>API設定（Google Gemini）</h2>
+      <div class="grid">
+        <div>
+          <label>Gemini API Key</label>
+          <input id="api_key" type="password" placeholder="AIza...">
+        </div>
+        <div>
+          <label>Model</label>
+          <select id="model">
+            <option value="gemini-3-pro-preview" selected>gemini-3-pro-preview（最新・最高品質）</option>
+            <option value="gemini-3-pro">gemini-3-pro</option>
+            <option value="gemini-3-flash-preview">gemini-3-flash-preview（最新・高速）</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          </select>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#888;margin-top:8px;">※APIキーはブラウザ内のみで使用され、localStorageに保存されます。取得: https://aistudio.google.com/apikey</p>
+      <div class="grid" style="margin-top:12px;">
+        <div>
+          <label>批評&書き直し用モデル（ブラッシュアップ時のみ使用）</label>
+          <select id="critic_model">
+            <option value="gemini-3-pro-preview" selected>gemini-3-pro-preview（推奨・上位批評）</option>
+            <option value="gemini-3-pro">gemini-3-pro</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+            <option value="same">初期生成と同じモデルを使う</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>生成パラメータ（詳細設定）</h2>
+      <div class="grid">
+        <div>
+          <label>temperature（創造性: 0=固い / 2=奔放）</label>
+          <input id="gen_temperature" type="number" step="0.1" min="0" max="2" value="0.9">
+        </div>
+        <div>
+          <label>maxOutputTokens（思考モード時は多めに）</label>
+          <input id="gen_max_tokens" type="number" step="256" min="256" max="65536" value="8192">
+        </div>
+        <div>
+          <label>thinkingBudget（Gemini 2.5+ / 3 のみ）</label>
+          <select id="gen_thinking_budget">
+            <option value="0" selected>0（思考モードOFF・最速・安定）</option>
+            <option value="-1">auto（モデルに任せる）</option>
+            <option value="1024">1024（軽め）</option>
+            <option value="4096">4096（標準）</option>
+            <option value="8192">8192（深め）</option>
+            <option value="16384">16384（最大）</option>
+          </select>
+        </div>
+        <div>
+          <label>includeThoughts（思考過程を取得）</label>
+          <select id="gen_include_thoughts">
+            <option value="false" selected>false</option>
+            <option value="true">true</option>
+          </select>
+        </div>
+        <div>
+          <label>topP（nucleus sampling）</label>
+          <input id="gen_top_p" type="number" step="0.05" min="0" max="1" value="0.95">
+        </div>
+        <div>
+          <label>topK</label>
+          <input id="gen_top_k" type="number" step="1" min="1" max="100" value="40">
+        </div>
+      </div>
+      <p style="font-size:11px;color:#888;margin-top:8px;">※LP要約呼び出しは temperature 0.3 固定・thinkingBudget はこの設定に従います</p>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn-secondary" id="btn-show-prompt">プロンプト確認へ</button>
+      <button class="btn-primary" id="btn-generate">生成開始（5パターン並列）</button>
+    </div>
+  </div>
+
+  <!-- PROMPT TAB -->
+  <div class="tab-content hidden" data-content="prompt">
+    <div class="card">
+      <h2>生成されるプロンプト（パターンごとに5回呼び出し）</h2>
+      <p style="font-size:12px;color:#666;">各パターンで2バリエーション生成します。下記は現在の入力値で組み立てたプロンプトです。</p>
+      <div id="prompt-previews"></div>
+    </div>
+  </div>
+
+  <!-- OUTPUT TAB -->
+  <div class="tab-content hidden" data-content="output">
+    <div class="card">
+      <h2>出力シート</h2>
+      <div id="status-box"></div>
+      <div id="sheet-wrap" style="margin-top:16px;overflow-x:auto;"></div>
+      <div class="toolbar">
+        <button class="btn-secondary" id="btn-export-json">JSONコピー</button>
+        <button class="btn-secondary" id="btn-retry-ng">違反セルだけ再生成</button>
+        <button class="btn-secondary" id="btn-critique-only">🔍 批評のみ（評価を見る）</button>
+        <button class="btn-primary" id="btn-brushup">🔧 批評&書き直し</button>
+      </div>
+      <div id="critique-wrap" style="margin-top:16px;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PATTERNS = [
+  { key: 'empathy',   name: '① 共感（葛藤の代弁）',          desc: 'ユーザーが心の中で「あー、それそれ」と思う「うまくいかない現状（葛藤）」を言語化する' },
+  { key: 'paradigm',  name: '② 意外性（パラダイムシフト）',  desc: '「常識ではAだと思われているが、実はB」と提示し脳を一瞬フリーズさせる' },
+  { key: 'zeigarnik', name: '③ 未完了（ツァイガルニク効果）', desc: '答えをわざと隠し、続きを知らないと気持ち悪い心理を作る' },
+  { key: 'loss',      name: '④ 危機感（損失回避バイアス）',  desc: '「このままでは損をする／悪化する」と突きつけ生存本能を刺激する' },
+  { key: 'halo',      name: '⑤ 権威（ハロー効果）',          desc: '「成果を出している人・企業は〇〇している」「トップ〇〇が選ぶ△△」のように、権威ある存在が既にやっている事実を提示して信頼度を上げる。Hookは必ず「できる〇〇は〇〇」「成果を出す〇〇の共通点」「導入企業〇〇社が選んだ理由」「業界上位〇〇%が使う△△」等の権威提示型にする' }
+];
+
+// --- Utility: 正しい文字数カウント（絵文字等も1文字扱い） ---
+const clen = s => [...(s||'')].length;
+
+// --- State ---
+const state = {
+  results: {}, // { patternKey: { hook_1:[], hook_2:[], ... } }
+  originals: {}, // snapshot of results before brush-up, for revert
+  critiques: {}, // { patternKey: {weaknesses:[], suggestions:[]} }
+  lpAnalysis: null, // { summary, service, messaging_angles, pattern_fit, top_recommendation }
+  promptOverrides: JSON.parse(localStorage.getItem('pu_prompt_overrides') || '{}')
+};
+function savePromptOverrides() { localStorage.setItem('pu_prompt_overrides', JSON.stringify(state.promptOverrides)); }
+function getEffectivePrompt(key, defaultText) {
+  return (state.promptOverrides[key] && state.promptOverrides[key].trim()) ? state.promptOverrides[key] : defaultText;
+}
+
+// --- Tab switching ---
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => switchTab(t.dataset.tab);
+});
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('hidden', c.dataset.content !== name));
+  if (name === 'prompt') renderPromptPreviews();
+  if (name === 'output') renderSheet();
+}
+
+// --- Persistence ---
+const FIELDS = ['video_length','register_style','cta_type','voice_style','own_lp_url','own_lp_summary','competitors_summary','positioning_final','one_line_promises','selected_tobe_4','proof_assets','api_key','model','critic_model','gen_temperature','gen_max_tokens','gen_thinking_budget','gen_include_thoughts','gen_top_p','gen_top_k'];
+FIELDS.forEach(k => {
+  const el = document.getElementById(k);
+  const saved = localStorage.getItem('pu_' + k);
+  if (saved !== null) el.value = saved;
+  el.addEventListener('input', () => localStorage.setItem('pu_' + k, el.value));
+  el.addEventListener('change', () => localStorage.setItem('pu_' + k, el.value));
+});
+
+function getInputs() {
+  const o = {};
+  FIELDS.forEach(k => o[k] = document.getElementById(k).value.trim());
+  return o;
+}
+
+// --- Critique prompt builder ---
+function buildCritiquePrompt(pattern, result, inputs) {
+  const is40 = inputs.video_length === '40s';
+  return `あなたは日本の広告コピーの厳しい批評家です。あらゆる業界のLPに対応します。以下の【評価対象】の2バリエーションを、【評価観点】に沿って辛口に批評してください。
+
+【パターン】${pattern.name}（${pattern.desc}）
+【video_length】${inputs.video_length}
+【register_style】${inputs.register_style}
+
+【入力情報（文脈）】
+- own_lp_summary: ${inputs.own_lp_summary || '未指定'}
+- positioning_final: ${inputs.positioning_final || '未指定'}
+- one_line_promises: ${inputs.one_line_promises || '未指定'}
+- selected_tobe_4: ${inputs.selected_tobe_4 || '未指定'}
+- proof_assets: ${inputs.proof_assets || '未指定'}
+
+【評価対象】
+${JSON.stringify(result, null, 2)}
+
+【評価観点】（各バリエーションごとに具体的に指摘）
+1. 接続詞の自然さ：「だから」「さらに」「実際」「すると」等が機械的・唐突・無理に繋げていないか。文脈に合った接続か。
+2. 主体の明示：Bodyに「弊社」「当サービス」「本メソッド」等の主体が自然に入っているか。「私共」は禁止。
+3. Hook-Body-CTAの論理接続：Hookの問い→Bodyが唯一の正解→CTAが確認、の流れが一貫しているか。
+4. 抽象表現：「失敗しない」「必見」「効果的」「最適」など具体性のない言葉を使っていないか。
+5. 既視感・テンプレ感：よく見る広告コピーの使い回しではないか。
+6. 具体性：positioning_finalやown_lp_summaryの固有キーワード（数値・機能名・業界用語）が入っているか。
+7. 文字数：Hook/Body 16〜24字、CTA 13〜20字。記号含む。1文字でも超過/不足はNG。
+8. パターン適合：${pattern.name}の心理効果（${pattern.desc}）を実際に起こせる強度があるか。
+9. セル独立完結：hook_1/hook_2、body_a_1/body_a_2、body_b_1/body_b_2、cta_1/cta_2 が、それぞれ単独で読んで意味が成立しているか。2セル跨ぎで1文になっている、助詞や動詞途中で切れている等はNG。
+
+【出力形式】必ず以下のJSONのみで回答。前後の説明文禁止。
+{
+  "overall_score": 0〜100の整数,
+  "variations": [
+    {
+      "index": 0,
+      "score": 0〜100の整数,
+      "weaknesses": ["具体的指摘1", "具体的指摘2", ...],
+      "strengths": ["良い点があれば"]
+    },
+    {
+      "index": 1,
+      "score": 0〜100の整数,
+      "weaknesses": [...],
+      "strengths": [...]
+    }
+  ],
+  "improvement_directions": ["書き直し時の方向性1", "方向性2", ...]
+}`;
+}
+
+// --- Rewrite prompt builder (critique-informed) ---
+function buildRewritePrompt(pattern, result, critique, inputs) {
+  const basePrompt = getEffectivePrompt(pattern.key, buildPrompt(pattern, inputs));
+  return `以下の批評結果を踏まえて、同じパターン（${pattern.name}）のコピーを**書き直して**ください。
+
+【元のコピー】
+${JSON.stringify(result, null, 2)}
+
+【批評結果】
+${JSON.stringify(critique, null, 2)}
+
+【書き直しの絶対ルール】
+- 批評で指摘された弱点を全て改善する
+- 特に「接続詞の不自然さ」「抽象表現」「主体の不在」「既視感」を徹底排除
+- improvement_directions に示された方向性に寄せる
+- 元のコピーと同じ構造（hook_1/hook_2/body_a_1/body_a_2/body_b_1/body_b_2/cta_1/cta_2 の配列、各2バリエ）を維持
+- 文字数制限を絶対遵守
+
+【以下、元の生成プロンプトを参考ルールとして再掲】
+${basePrompt}
+
+出力は上記生成プロンプトと同じJSON形式のみ。前後の説明文禁止。`;
+}
+
+// --- LP summary prompt builder ---
+function buildLpSummaryPrompt(url) {
+  return `あなたは日本の広告戦略プランナーです。あらゆる業界のLPに対応します。以下のURLのランディングページを**LPの先頭から末尾まで一文字も飛ばさず網羅的に**読み取り、広告企画のための構造化分析を行ってください。
+
+URL: ${url || '（URL未入力）'}
+
+【読み取り範囲（1つも省略しない）】
+- ファーストビューのメインコピー／サブコピー／キャッチコピー
+- ナビゲーションメニュー
+- 全てのセクション見出し（h1〜h6）と本文（abstract化せず可能な限り原文の表現をそのまま拾う）
+- 強み／特徴／機能の全リスト
+- 実績／数値／受賞歴／導入企業数／顧客ロゴ／メディア掲載
+- お客様の声／事例／インタビュー／レビュー（発言者の肩書・所属・発言内容全部）
+- 料金プランの全プラン（プラン名・価格・含まれる内容・違い）
+- FAQ（全Q&A）
+- 比較表／競合との違い
+- 動画・画像内のテキスト（読み取れる限り）
+- フッター（会社情報・問い合わせ導線・CTA文言全部）
+
+【抽出の原則】
+- 情報は「多すぎる」くらい拾う。後工程で使わなかったら捨てればよい
+- 固有名詞・数値・料金・期間は必ず原文の表現そのままで保持する
+- 「〜など」で丸めず、具体列挙する
+- 自分で言い換えて抽象化するのを禁止。LPの表現を引用する
+
+【タスク】
+1. LP全体から情報を網羅的に抽出（情報の取りこぼしは失敗とみなす）
+2. **事業スコープの境界を明確化**（このサービスが「できること／できないこと」を誤読を防ぐ形で整理）
+3. 広告で使える訴求軸を整理（なるべく多く・6〜12個列挙）
+4. 5つのHookパターンそれぞれに対する適合度を評価（0〜100点）
+5. 各パターンに**2つの異なる訴求切り口（v1用・v2用）**を割り当てる（全10スロットの配分計画）
+6. 最適なパターンを推奨
+
+【事業スコープの把握（極めて重要）】
+LPのサービス説明から、**このサービスが扱える範囲と扱えない範囲**を必ず把握する。
+業種を問わず誤解されやすいので、次の点を明示的に検証する:
+- 対象となる広告／動画の範囲（自社ツール製のみか、他社ツール製も対応か）
+- 連携している外部サービスの範囲（「Google広告と連携」等は、本当にLPに書いてあるか確認）
+- サービス提供形態（SaaSツールか、コンサル付きか、代行か）
+- 対応プラットフォーム（どの広告媒体／どのLPか）
+- 出力形式（動画を作るのか、企画を出すのか、分析レポートか、改善案か）
+❗LPに明記されていない連携・機能・対応範囲を**絶対に想像で追加しない**
+❗特に「〇〇と連携」「〇〇を分析」「〇〇まで提案」系の機能はLP原文に書いていなければ scope_boundaries.out_of_scope に入れる
+
+【Hookパターン定義と心理適合ルール】
+- empathy（共感・葛藤の代弁）: ユーザーの「うまくいかない現状」を言語化して「あー、それそれ」と思わせる。**適合する訴求:** 感情的な痛み・あるある・悩み。**不適合:** 淡々とした数値・スペック
+- paradigm（意外性・パラダイムシフト）: 「常識はAだが実はB」と提示し脳を一瞬フリーズさせる。**適合する訴求:** 常識を覆す事実・逆転の発想。**不適合:** 普通の機能説明・誰でも知ってる話
+- zeigarnik（未完了・ツァイガルニク効果）: 答えを隠し「続きを知らないと気持ち悪い」心理を作る。**適合する訴求:** 気になる謎・ヒント・一部だけ明かす事実。**不適合:** 全部説明する訴求
+- loss（危機感・損失回避バイアス）: 「このままでは損をする／悪化する」と生存本能を刺激。**適合する訴求:** リスク・損失シナリオ・機会損失。**不適合:** ポジティブなだけの訴求
+- halo（権威・ハロー効果）: 必ず「**〇〇ほど、〇〇している**」系の権威提示構文で書く。**権威ある主体が既に取っている行動**を見せて「自分もやるべきだ」と思わせる。**適合する訴求:** 「成果を出す〇〇がやっている行動」「トップ〇〇の共通点」「上位〇〇%の選択」「導入〇〇社の実績」「業界のプロが推奨する行動」。**不適合（絶対NG）:** 機能説明・連携機能・最新性アピール・作り手のスペック・「〇〇できるツール」型の訴求は権威にならない。**最優先Hook構文:** 「〇〇ほど△△している」「成果を出す〇〇ほど△△している」「できる〇〇ほど△△を選んでいる」「上位〇〇ほど△△に投資している」。**絶対NG例:** 「〇〇と連携できる最新ツール」「〇〇が構築した△△」「最先端の〇〇」「業界初の〇〇」（これらはサービス自慢であって権威ではない）。**angle_v1/v2設定時のチェック:** 主語が「使う側／選ぶ側の優秀な主体」になっているか？機能や作り手の話になっていたら書き直す。🚨**述語の論理整合性チェック（絶対遵守）:**「成果を出す〇〇ほど〜」の「〜」部分は**成功と論理的に相関する行動**でなければならない。試行系・入門系・無料系・軽さ系の動詞を述語に置くと**権威構文が論理矛盾を起こす**（例: 「成果を出す事業会社ほど無料で動画検証する」←成功者は予算があるのにタダでやるのは矛盾）。**NG述語例:** 「無料で〜する／試す」「とりあえず〜する」「まずは〜する」「気軽に〜する」「簡単に〜する」「お試しで〜する」（これらはCTA的行動・入門行動であり権威と相反する）。**OK述語例:** 「〇〇に投資している」「〇〇を徹底している」「量を投じている」「継続して〇〇している」「専門家に依頼している」「厳密に〇〇している」「〇〇を重視している」「〇〇を導入している」（コミット系・実践系の動詞）。**halo angle_v1/v2には「無料」「試す」「検証」「お試し」「ちょっと」等の試行系キーワードを含めない**（それらはCTAで使う。halo angleには絶対に使わない）。
+
+【訴求配分の絶対ルール（最重要・違反したら失敗）】
+
+■ ルール1: 同一パターン内（v1とv2）で同じ訴求を使うのは禁止（最重要）
+  → 1つのパターン（例: 共感）の v1 と v2 は必ず異なる訴求面にする
+  → 「言い回し違い」「固有名詞違い」でも、伝えたい中身が同じなら被り扱い
+  → 同じ機能・同じ動作フローを異なる角度で言い換えただけも被り扱い
+  ❌ NG例（表面的に違うが実質同じ）:
+    v1:「LPを入力→競合比較で勝てる訴求を提案するツール」
+    v2:「LPを入力→裏側で自動的に比較分析が行われる仕組み」
+    → どちらも「LP入力→自動で競合比較分析」という同一の機能体験を描写しており、被り
+  ✅ OK例（本当に違う面を語っている）:
+    v1:「LP入力で競合比較が自動化される機能」（独自機能面）
+    v2:「動画制作ノウハウがない現場の不安」（痛み面）
+  → セルフチェック: v1とv2の訴求を一文に要約し、同じ文にならないか確認する
+
+■ ルール2: 5パターンをまたいで同じ訴求が出てよいのは最大2回まで
+  → 例: 「時短面」の訴求を① 共感v1 と ④ 危機感v1 で使ったら、それ以上「時短面」は禁止
+  → 3回目が出た時点で失敗
+  → 「同じ訴求」かどうかは、表現ではなく「読者に伝わる中核メッセージ」で判定
+  → 例: 「時間がかかる」「工数が多い」「手間がかかる」「企画に時間がとられる」は全て時短面＝同一訴求
+
+■ ルール3: 心理適合しない訴求をパターンに割り当てない
+  → 権威に感情訴求を置く、共感に数値スペックを置く等は禁止
+
+■ ルール4: LPから抽出した訴求軸の数が少ない場合（6個未満等）でも、ルール1は絶対に破らない
+  → v1/v2を異なる角度・異なる側面で切り分ける
+
+【訴求面（ファセット）の多様性ルール（極めて重要）】
+LPの訴求は複数の「面」に分解できる。例：
+  - 痛み面（ユーザーの不満・悩み・葛藤）
+  - 時短面（時間短縮・工数削減）
+  - 質面（成果物のクオリティ・完成度）
+  - 成果面（数値的な結果・CV・ROI向上）
+  - 実績面（導入社数・受賞・権威）
+  - 独自性面（他社にない手法・メソッド）
+  - 価格面（コスト・費用対効果）
+  - 使いやすさ面（UI/手軽さ/操作性）
+  - 信頼面（セキュリティ・サポート・体制）
+  - 新前提面（常識を覆す発想転換）
+
+❗全10スロット(v1/v2 × 5パターン)は**最低6つ以上の異なる面**をカバーすること
+❗同じ面は10スロット中2スロットまで（3つ以上はNG。例：「質への不満」面が3パターンにまたがるのは失敗）
+❗各パターンのv1とv2は必ず別々の面から選ぶ（「できる限り」ではなく絶対ルール）
+❗LPが特定トピック（特定プロダクト名・特定機能）中心の場合でも、訴求の「切り口（面）」は必ず分散させる
+  同じトピックを扱っても、切り口が違えば別の訴求として成立する
+  例：P-MAX というトピックに対し「質の妥協」「時間がない」「成果低下リスク」「業界の新常識」「他社との差別化」等、異なる面から語る
+
+【出力形式】必ず以下のJSONのみで回答。前後の説明文・マークダウン禁止。
+{
+  "summary": "動画企画に使える要約を**800〜1500字程度**のプレーンテキストで簡潔に。箇条書き可。サービス名／一行説明／ターゲット／提供価値／主要な強み／主要な機能／料金／主要実績数値／CTA文言を含む。詳細は後続フィールド(service, messaging_angles)で構造化するので、summaryは重複せず要点のみ。",
+  "service": {
+    "name": "サービス名／会社名（正式名称）",
+    "one_liner": "LPのキャッチコピー原文 or 一行説明",
+    "tagline": "サブコピー／補足キャッチコピー原文",
+    "target": "ターゲットユーザー（業種・役職・規模・悩みを具体的に）",
+    "problem_solved": "そのターゲットのどんな具体的な問題を解決するか",
+    "strengths": ["強み1（LP原文の表現）", "強み2", "強み3", "（全部列挙）..."],
+    "features": ["機能名1 - 機能内容1", "機能名2 - 機能内容2", "（全部列挙）..."],
+    "quantitative_facts": ["数値事実1（例：導入社数○○社）", "数値事実2（例：最短○分）", "（LPに出てくる数字を全部）..."],
+    "proofs": ["実績・受賞・事例1", "実績2", "..."],
+    "testimonials": [
+      {"speaker": "発言者名・肩書", "quote": "発言内容（原文）"}
+    ],
+    "pricing": [
+      {"plan_name": "プラン名", "price": "価格", "includes": "含まれる内容"}
+    ],
+    "cta_candidates": ["LPで促している具体的なCTA文言1（原文）", "CTA文言2", "..."],
+    "faq_highlights": ["FAQから読み取れる顧客の主な疑問・懸念1", "..."],
+    "differentiators": ["競合と比べた差別化ポイント1", "..."],
+    "scope_boundaries": {
+      "in_scope": ["このサービスが実際にできること（LP原文に書いてある範囲のみ）1", "..."],
+      "out_of_scope": ["LPに書かれていない、あるいは明示的にできないと読める事項（誤読しやすいものを優先列挙）1", "..."],
+      "common_misreadings": ["事業モデル上ありえない誤解を明示的に禁止する形で列挙。例: ツール提供なのに代行と読みがち／対象範囲が限定的なのに全対応と読みがち等"]
+    }
+  },
+  "messaging_angles": [
+    {
+      "angle": "訴求軸（例：コスト削減／時短／属人性排除）",
+      "rationale": "なぜこの軸がターゲットに刺さるか",
+      "evidence": "LPのどの記述・数値から導いたか（原文引用）"
+    }
+  ],
+  "pattern_fit": [
+    {
+      "pattern_key": "empathy",
+      "score": 0〜100の整数,
+      "rationale": "このパターンがこのサービスでどれだけ機能するかの根拠",
+      "angle_v1": "v1用の切り口（具体的な訴求内容・LP原文の表現を活用）",
+      "angle_v2": "v2用の切り口（v1とは必ず別角度・別側面。被りは絶対禁止）",
+      "hook_seed_v1": "v1のHookで使えそうな具体キーワード／フレーズの種",
+      "hook_seed_v2": "v2のHookで使えそうな具体キーワード／フレーズの種",
+      "psychology_fit_reason": "なぜこの2切り口がこのパターンの心理（共感なら痛み等）に合うか"
+    },
+    {"pattern_key": "paradigm", "score": ..., "rationale": "...", "angle_v1": "...", "angle_v2": "...", "hook_seed_v1": "...", "hook_seed_v2": "...", "psychology_fit_reason": "..."},
+    {"pattern_key": "zeigarnik", "score": ..., "rationale": "...", "angle_v1": "...", "angle_v2": "...", "hook_seed_v1": "...", "hook_seed_v2": "...", "psychology_fit_reason": "..."},
+    {"pattern_key": "loss", "score": ..., "rationale": "...", "angle_v1": "...", "angle_v2": "...", "hook_seed_v1": "...", "hook_seed_v2": "...", "psychology_fit_reason": "..."},
+    {"pattern_key": "halo", "score": ..., "rationale": "...", "angle_v1": "...", "angle_v2": "...", "hook_seed_v1": "...", "hook_seed_v2": "...", "psychology_fit_reason": "..."}
+  ],
+  "distribution_check": {
+    "all_10_angles": "全10スロット(v1/v2 × 5パターン)の訴求を短く列挙して、重複が最大2回以内か自己検証した結果を書く",
+    "within_pattern_unique": "同一パターン内のv1とv2が全パターンで異なることを確認した結果",
+    "facet_distribution": "各スロットに紐づく訴求面(痛み面/時短面/質面/成果面/実績面/独自性面/価格面/使いやすさ面/信頼面/新前提面 等)を列挙し、6面以上カバーかつ同一面3スロット以上集中なしを自己検証"
+  },
+  "top_recommendation": {
+    "pattern_key": "最も適合するパターンのkey",
+    "reason": "推奨理由（ターゲットの状態とLPの特性から）",
+    "confidence": 0〜100の整数
+  }
+}`;
+}
+
+// --- Prompt builder ---
+function buildPrompt(pattern, inputs) {
+  const is40 = inputs.video_length === '40s';
+  const structureRules = is40 ? `
+【40秒版の構成（1シナリオあたり以下の8要素をセットで生成）】
+- hook_1: インサイト提示（ユーザーの無意識の悩み・当たり前を突く）
+- hook_2: 示唆・新前提（解決のヒント・新しい常識）
+- body_a_1: 提示・手法（独自の強み・メソッドによる変化）
+- body_a_2: 根拠・証拠（body_a_1を自然に受ける形で、数値・実績・論理で裏付け）
+- body_b_1: 別角度の提示・手法
+- body_b_2: 別角度の根拠・証拠（body_b_1を自然に受ける）
+- cta_1: ベネフィット提示（行動直後に得られる変化、命令形禁止）
+- cta_2: 最終アクション（ボタン文言、心理的ハードル低く）
+※cta_1とcta_2は必ず異なる内容にする（cta_1はcta_2への誘導）
+` : `
+【20秒版の構成（1シナリオあたり以下の4要素をセットで生成）】
+20秒は尺が短いため、各セルが1秒=1シーンのテロップとして瞬時に伝わる必要がある。
+4セルで「問い→解決→証拠→行動」の完結ストーリーを作る。
+
+- hook_1: パターン心理に基づく問いかけ・インサイト提示
+  → 40秒版のhook_1と同じクオリティ。ここで離脱を防ぐ
+  → 割り当てられた訴求をここで提示する
+  → パターンごとの心理効果（共感なら「あー、それそれ」、危機感なら「やばい」等）を起動する
+
+- body_a_1: hookの問いに対する直接的な解決策・手法
+  → hookで提起した課題に対して「このサービスなら〇〇で解決」を提示
+  → LP要約の具体的な機能・手法・独自性を使う（抽象表現禁止）
+  → hookと論理的に繋がること（hookの問い→body_a_1が唯一の正解）
+
+- body_b_1: 解決策の裏付け・証拠・結果
+  → body_a_1の手法がなぜ信頼できるか、使うとどうなるか
+  → LP要約から具体的な数値・実績・導入社数・顧客の声等を拾う
+  → 「導入〇〇社」「〇〇%改善」等の定量根拠が理想
+
+- cta_1: 行動への最後の一押し（命令形禁止）
+  → hook〜body_bで語った文脈の自然な延長
+  → 「まずは無料で試す」「3分で完了」等、心理的ハードルを下げる
+  → LP要約のCTA文言があれば活用
+
+※hook_2, body_a_2, body_b_2, cta_2は空配列にする
+※20秒は4セルしかないので、各セルの密度が40秒版より高い必要がある。1セルに複数の訴求を詰め込まず、1セル1メッセージを徹底する
+`;
+
+  const charRules = `
+🚨 文字数制限（絶対遵守・1文字でも超過したら失敗）
+- hook_1, hook_2: 16〜24文字
+- body_a_1, body_a_2, body_b_1, body_b_2: 16〜24文字
+- cta_1, cta_2: 13〜20文字
+※記号を含めてカウント。絶対に守ること。
+※「。」「．」などのフルストップは一切使用禁止。
+※漢数字（五、三等）は避ける。
+
+【「？」の使用ルール（register_styleに応じて厳格に使い分ける）】
+- polite（丁寧語「です／ます」）指定時: 「〜ですか／〜ますか／〜ませんか／〜ていませんか」等、助詞「か」で終わる疑問文には「？」を付けない（「か」が既に疑問を示すため冗長で不自然）
+  ❌「根拠のない動画広告で予算を消化していませんか？」（「か？」は冗長）
+  ❌「成果が出ずに困っていませんか？」
+  ✅「根拠のない動画広告で予算を消化していませんか」
+  ✅「成果が出ずに困っていませんか」
+- casual / neutral 指定時: 「か」で終わらない疑問形式（「〜じゃない？／〜ない？／〜知ってた？／〜でしょ？」等）には「？」を付ける（「？」がないと疑問文として読めない）
+  ✅「そのやり方、もう古くない？」
+  ✅「月10万の広告費、ムダにしてない？」
+- 体言止め・断定文には「？」を付けない（疑問でないのに疑問記号を付けるのはNG）
+  ❌「動画広告の新常識？」（意図が曖昧になる）
+  ✅「動画広告の新常識」
+
+🧠 【意味優先ルール（最重要・字数より上位）】
+- まず日本語として文法的に成立し、1回読んで意味が通じるコピーを書く
+- 字数に合わせて単語をちぎる・助詞を抜く・意味の通らない圧縮は絶対禁止
+  × 「〇〇の△△時間がなく□□だけですか」（意味不明な圧縮）
+  ○ 「△△に時間かけず□□になってない？」（意味が通る）
+- 字数オーバーしそうなら、別の切り口・別の言い回し・別のキーワードで書き直す
+  （削って壊すのではなく、発想を変えて短く言い切る）
+- 体言止め・倒置・省略は「意味が明確に伝わる場合のみ」使う
+- 「何を言ってるかわからない」「2回読まないと意味不明」は失敗とみなす
+`;
+
+  const styleRule = inputs.register_style === 'casual'
+    ? 'casual: 「だよ/じゃん/〜してみて」を使う。「です/ます」禁止。'
+    : inputs.register_style === 'neutral'
+    ? 'neutral: 「だ/〜である/〜しがち」を使う。「です/ます/だよ」禁止。'
+    : 'polite: 「です/ます/〜できます」を使う。「だよ/じゃん」禁止。';
+
+  const bodySubjectRule = `
+【Body訴求明瞭性ルール（絶対遵守・曖昧なBodyは全て失格）】
+Body（body_a_*, body_b_*）は、各セル単独で読んだときに「何の訴求か」が一読で伝わらなければならない。
+読者は動画を1回しか見ず、Bodyは1秒=1シーンのテロップとして瞬時に処理される。
+以下のいずれかが曖昧だと「訴求が伝わらない」失格とみなす。尺の短い20秒版は特に厳格。
+
+❌ 典型的な曖昧パターン一覧（これらは全て失格）:
+
+① 主語欠落（誰が／何がやる？）
+  ❌「同時に最大20パターンの動画を一気に生成」（ツール？ユーザー？）
+  ✅「弊社ツールは最大20パターンを同時生成」
+  ✅「本サービスはURL入力だけで動画作成」
+
+② 目的語・対象欠落（何をやる／何の話？）
+  ❌「成果を出すための3つの改善点」（何の成果？何を改善？）
+  ✅「広告成果を出す動画構成の3改善」
+  ❌「質に妥協していませんか」（何の質？）
+  ✅「採用動画の質に妥協していませんか」
+
+③ 指示語・代名詞の指示先が不明
+  ❌「これを導入すれば変わる」（「これ」とは？）
+  ❌「それが今の時代の常識」（「それ」とは？）
+  ✅「本ツール導入で動画制作が一変」
+  ✅「URL入力だけが今の常識」
+
+④ 数字の対象が不明
+  ❌「最短5分で完成」（何が5分で完成？）
+  ❌「20本で成果が出る」（何の20本？）
+  ✅「動画1本が最短5分で完成」
+  ✅「動画20本で仮説検証が回る」
+
+⑤ 比較基準が不明
+  ❌「従来の3倍速い」（何より？何が3倍？）
+  ❌「他社より安い」（どの他社より？何が安い？）
+  ✅「従来の動画制作の3倍速」
+  ✅「競合ツール比で制作費が半額」
+
+⑥ 業界・サービス領域が不明（どの分野の話か特定できない）
+  ❌「検証に時間がかかっていませんか」（何の検証？）
+  ❌「運用が属人化していませんか」（何の運用？）
+  ✅「動画広告の検証に3週間かけていませんか」
+  ✅「広告クリエイティブの運用が属人化していませんか」
+
+⑦ 行為の帰結が不明（やる／やらないとどうなる？）
+  ❌「〇〇に取り組んでいませんか」（取り組むとどうなる？それの何が問題？）
+  ✅「〇〇に月10万円かけていませんか」（コスト損失が明示）
+  ✅「〇〇で広告費が2倍に膨らんでいませんか」
+
+⑧ 裏付け・定量性の欠如（抽象的で信頼できない）
+  ❌「多くの企業が導入」（何社？業界は？）
+  ❌「大幅にコスト削減」（何%？）
+  ✅「EC業界200社が導入」
+  ✅「制作費を平均60%削減」
+
+【主体の書き方（①主語欠落の具体指針）】
+主語には以下のいずれかを1つ、文頭または文中に必ず明示する（業種に応じて自然に選ぶ）：
+- LPに記載の実際のサービス名・企業名・ブランド名（最優先）
+- 組織系：弊社、当社、当サービス、当院、当塾、当校、当店 等
+- 個人/チーム系：私、我々、専門チーム、プロ講師陣、担当者 等
+- 仕組み系：このメソッド、このシステム、本プログラム、本サービス 等
+※「私共」は使用禁止。2バリエーションの中で主体に変化をつける。
+※own_lp_summaryに登場する固有の組織名・ブランド名があれば積極的に使う。
+
+【字数制限との両立】
+字数が厳しい場合、曖昧になる表現を削ってごまかすのではなく、曖昧の原因になっている抽象語を具体語に置き換える。
+- 主語を削るくらいなら形容詞・修飾語を削る（「弊社は」3字、「本〇〇は」4字で収まる）
+- 「運用」「成果」「改善」「効果」等の抽象名詞は単独使用禁止。必ず「〇〇の運用」等と領域を付ける
+- 「これ」「それ」「今」等の指示語で字数を稼がない。具体名詞を使う
+
+【❗20秒版body_a_1の特別厳格ルール】
+20秒版は body_a_1 が唯一の解決策セルのため、ここで訴求内容が曖昧だと動画全体が失敗する。
+最低限以下3点が1セルで同時に伝わること：
+- 主体（誰が／何が提供する）
+- 行為・手法（何をどうやって解決する）
+- 対象・領域（何に対して／どの分野で）
+
+【最終セルフチェック（Body生成直前に必ず実施）】
+各Bodyセルを単独で読者に見せた想定で、以下3つに即答できるか自問する：
+- Q1「これは誰／何のサービスの話？」→ 答えられない＝①主語欠落
+- Q2「何の領域／何について？」→ 答えられない＝②⑥対象・領域欠落
+- Q3「だから何？何が言いたい？」→ 答えられない＝⑦帰結欠落
+3問のいずれかに即答できなければ書き直す。
+`;
+
+  const pfMatch = state.lpAnalysis?.pattern_fit?.find(x => x.pattern_key === pattern.key);
+  const otherPf = (state.lpAnalysis?.pattern_fit || []).filter(x => x.pattern_key !== pattern.key);
+  const angleBlock = pfMatch ? `
+【LP分析による担当訴求（最優先遵守）】
+- v1で使う切り口: ${pfMatch.angle_v1 || '未設定'}
+  → Hook種: ${pfMatch.hook_seed_v1 || '未設定'}
+- v2で使う切り口: ${pfMatch.angle_v2 || '未設定'}
+  → Hook種: ${pfMatch.hook_seed_v2 || '未設定'}
+- このパターンに割当てた理由（心理適合）: ${pfMatch.psychology_fit_reason || ''}
+
+❗v1とv2で訴求切り口を絶対に被らせないこと（別の角度・別の側面で書く）
+
+【Body/CTAも担当訴求に沿わせるルール（絶対遵守）】
+Hookだけでなく、Body_a / Body_b / CTA も担当訴求の文脈で書くこと。
+- v1のBody/CTAは「${pfMatch.angle_v1 || ''}」の訴求を深掘り・解決・証明する内容にする
+- v2のBody/CTAは「${pfMatch.angle_v2 || ''}」の訴求を深掘り・解決・証明する内容にする
+- LPに書かれている全機能を列挙するのは禁止。担当訴求に関連する機能・実績・数値だけを選んで使う
+- 例: Hookが「時間がかかる問題」なら → Bodyは時短に関連する機能と実績だけ → CTAも時短を動機にした行動喚起
+- 例: Hookが「ノウハウ不足」なら → Bodyは専門性・サポート面の機能だけ → CTAもサポート活用を動機にした行動喚起
+- ❌NG: どの訴求でも「最短5分」「URL入力するだけ」「無料5本」「Google連携」を全部並べるのは金太郎飴で失敗
+${otherPf.length ? `
+【他パターンが使う切り口（被りは最大2回までなので、可能な限り避ける）】
+${otherPf.map(x => `- ${x.pattern_key}: v1「${x.angle_v1||''}」 / v2「${x.angle_v2||''}」`).join('\n')}
+` : ''}
+` : '';
+
+  const scope = state.lpAnalysis?.service?.scope_boundaries;
+  const scopeBlock = scope ? `
+【事業スコープ（絶対遵守・作り話禁止）】
+✅ このサービスができる範囲（LPに記載あり）:
+${(scope.in_scope || []).map(s => `- ${s}`).join('\n') || '- (未設定)'}
+
+❌ このサービスがやらない／対応しない範囲（絶対に機能として書くな）:
+${(scope.out_of_scope || []).map(s => `- ${s}`).join('\n') || '- (未設定)'}
+
+⚠️ 陥りやすい誤解（このような表現は絶対書かない）:
+${(scope.common_misreadings || []).map(s => `- ${s}`).join('\n') || '- (未設定)'}
+
+❗上記 out_of_scope / common_misreadings に該当する機能・連携・提供範囲を創作するのは失敗とみなす。
+❗「〇〇と連携」「〇〇も分析」「〇〇まで提案」等はLP原文に記載がある場合のみ使用可。記載がなければ書かない。
+❗own_lp_summary に書かれていない機能・連携・結果・範囲を推測で書かない。
+` : `
+【事実遵守ルール】
+- own_lp_summary に明示されていない機能・連携・結果・提供範囲を推測で書かない
+- 「〇〇と連携」「〇〇まで分析」「〇〇を提案」系の表現は、LP原文にある場合のみ使用可
+`;
+
+  const naturalJapaneseRule = `
+【日本語自然性ルール（絶対遵守・全セル共通・不自然な日本語は失格）】
+字数制限があっても、ネイティブ日本語話者が違和感なく一読で理解できる自然な日本語で書く。
+字数合わせのために文法を崩す・助詞を抜く・動詞形を誤用するのは失格。
+超過する場合は削って壊すのではなく、別の語彙・別の構文で発想を変えて書き直す。
+
+❌ 典型的な不自然パターン（Hook / Body / CTA 全てに適用）:
+
+① 勧誘形「〜しませんか」と問題提起の混同（最頻出・絶対禁止）
+  「〜しませんか」「〜みませんか」は本来「一緒に〜しよう」という勧誘形。
+  現在の悩み・状況を問うために使うと「一緒に悩みましょう／困りましょう」の意味になって不自然。
+  ❌「企画が浅いと悩みませんか」（= 一緒に悩みましょう？と読める）
+  ❌「成果に困りませんか」
+  ❌「運用に迷いませんか」
+  ❌「費用がかかると感じませんか」（「感じる」は状態動詞なのでル形勧誘は違和感）
+  ✅「企画が浅いと悩んでいませんか」（テイル形で現在の状態を問う）
+  ✅「成果に困っていませんか」
+  ✅「運用に迷っていませんか」
+  ✅「費用がかかると感じていませんか」
+  →現在継続している悩み・状況を問うときは必ず「〜ていませんか／〜ていますか」を使う。ル形「〜ませんか」は本当の勧誘（例: 「無料で試しませんか」）にのみ使う
+
+② 助詞の不自然な省略（字数稼ぎで核助詞を抜かない）
+  ❌「制作費削減できる」（「を」欠落）
+  ❌「動画成果伸び悩む」（助詞なし名詞連続）
+  ✅「制作費を削減できる」／「制作費が減る」
+  ✅「動画の成果が伸び悩む」
+  →「が／を／に／は／の」の核助詞は字数超過しても残す。修飾語・形容詞を削って助詞を残す
+
+③ 動詞のル形・テイル形の誤用
+  ❌「毎日作成する運用者」（継続行為なのにル形で単発っぽくなる）
+  ✅「毎日作成している運用者」
+  ❌「成果出るマーケター」（現在継続の状態なのにル形＋助詞欠落）
+  ✅「成果を出しているマーケター」
+  →現在継続・状態はテイル形、一時的・これからの行為はル形を使い分ける
+
+④ 名詞の過剰連結（漢語スタッキング）
+  ❌「動画広告成果最大化手法」（漢語5連続で意味取りづらい）
+  ❌「制作費削減効率化実現」
+  ✅「動画広告の成果を伸ばす手法」
+  ✅「制作費を減らして効率を上げる」
+  →3つ以上の漢語名詞を連続で連結しない。助詞や動詞で繋ぐ
+
+⑤ 体言止めの乱用
+  ❌2バリエーション全てのセルが体言止めで無機質（例: 「成果の最大化」「費用の削減」「時間の短縮」）
+  ✅体言止めは強調箇所1〜2セルのみ。他は動詞で締めて文としての強度を出す
+  →連発すると広告コピー感が過剰で読みづらくなる
+
+⑥ 時制・文末のねじれ
+  ❌「毎日使うと成果が出た」（現在条件→過去結果でちぐはぐ）
+  ❌「導入した企業は成果を出します」（過去＋丁寧現在の混在）
+  ✅「毎日使うと成果が出る」／「導入企業は成果を出している」
+  →1文中で時制・態を統一する
+
+⑦ 過度な省略による意味不明化
+  ❌「URLで動画完成」（主語も助詞もなく誰が何を?）
+  ❌「5分成果倍増」（助詞なしで意味破綻）
+  ✅「URL入力だけで動画が完成」
+  ✅「5分で成果が2倍に」
+  →字数が厳しければ削るのではなく、別の言い回しで短く言い切る
+
+⑧ 堅苦しい漢語の多用
+  ❌「効率の最大化を実現」「業務の効率化を推進」（堅すぎて広告として響かない）
+  ✅「ムダな作業を3割減らす」「業務が軽くなる」
+  →漢語名詞の連続は2語まで。それ以上は和語動詞に言い換える
+
+【書き方のメタルール（最重要）】
+- まずネイティブ話者として自然な日本語で書く。その後に字数を数える
+- 超過していたら「削って壊す」のではなく「別表現で言い換える」
+- 「この日本語、友人に話すとき実際に使うか？」と自問し、NOなら書き直す
+- 字数制限は書き直しの制約であって、文法破壊の許可ではない
+
+【セルフチェック（出力前に各セルで必ず実施）】
+- Q1「声に出して読んで違和感なく意味が通るか？」→ NOなら書き直す
+- Q2「〜しませんか形は『一緒に〜しよう』の勧誘として解釈されないか？」→ 問題提起なら必ず「〜ていませんか」に直す
+- Q3「核助詞（が／を／に／は／の）が抜けていないか？」→ 抜けていたら修飾語を削って助詞を入れる
+- Q4「時制・態が文中で統一されているか？」→ ズレていたら統一する
+- Q5「漢語が3つ以上連続していないか？」→ 連続していたら和語・動詞で繋ぐ
+`;
+
+  return `あなたは日本のプロ広告コピーライター兼動画構成プランナーです。あらゆる業種・業界のLP（SaaS、EC、教育、金融、美容、不動産、人材、飲食、BtoB、BtoC等）に対応します。
+
+【今回生成するパターン】${pattern.name}
+${pattern.desc}
+
+${angleBlock}
+${scopeBlock}
+このパターンのHookを起点に、1シナリオ完結の広告を**2バリエーション**生成してください。
+${pfMatch ? '**v1(i=0)とv2(i=1)はそれぞれ上記の担当切り口を使用すること。同一パターン内での訴求被りは絶対禁止。**' : ''}
+バリエーション配分：
+- i=0：世界観・前提の転換寄り（当たり前の選択肢を否定し新世界観を提示）
+- i=1：ベネフィット・体験寄り（導入後の変化、具体的な利用体験からくる驚き）
+
+📥 入力情報
+- own_lp_summary: ${inputs.own_lp_summary || '未指定'}
+- competitors_summary: ${inputs.competitors_summary || '未指定'}
+- positioning_final: ${inputs.positioning_final || '未指定'}
+- one_line_promises: ${inputs.one_line_promises || '未指定'}
+- selected_tobe_4: ${inputs.selected_tobe_4 || '未指定'}
+- proof_assets: ${inputs.proof_assets || '未指定'}
+- voice_style: ${inputs.voice_style || '未指定'}
+- register_style: ${inputs.register_style}
+- cta_type: ${inputs.cta_type || '未指定'}
+
+${structureRules}
+${charRules}
+
+【文体】${styleRule}
+※同一バリエーション内で文体を混在させない。
+
+${naturalJapaneseRule}
+
+${bodySubjectRule}
+
+【一貫性ルール】
+- 各インデックス[i]は1つの完結した広告シナリオとして機能させる
+- Hook[i]で投げかけた問い → Body[i]が唯一の正解 → CTA[i]がその確認、という論理で繋ぐ
+- own_lp_summaryやpositioning_finalの具体キーワードをHookに1つ以上組み込む
+
+【Hookのトピック明示ルール（絶対遵守・最重要）】
+Hook単独で読んだとき、読者が「何についての話か」を最低限理解できる必要がある。
+冒頭2秒で離脱判定されるため、Hookが抽象的な課題だけだと「自分には関係ない」と判定されてスワイプされる。
+
+❌ NG例（何の話か分からない。どの業界にも当てはまってしまう）:
+  「チームに運用ノウハウが少なくお困りですか」（何の運用?）
+  「成果が出ずに困っていませんか」（何の成果?）
+  「自動化が進んでいないと不安では」（何の自動化?）
+  「質に妥協していませんか」（何の質?）
+
+✅ OK例（LPのサービス領域・対象物が特定できる。※あくまで構造例、実際はown_lp_summaryの内容に基づく）:
+  「採用コストが年々上がっていませんか」（人材系LPなら）
+  「肌悩みに合うケアを見つけられない方へ」（美容系LPなら）
+  「店舗の集客施策が頭打ちではないですか」（飲食・小売LPなら）
+  「経理業務の手入力まだ続けていますか」（会計SaaS LPなら）
+
+具体ルール:
+- 各Hook(hook_1, hook_2)には、own_lp_summaryから分かる**そのサービス固有の領域・対象物・ターゲット**を示すアンカー語を1つ以上含める
+  （own_lp_summaryから、そのサービスが何を扱い誰が対象かを示す具体的な名詞を必ず拾う）
+- 「運用」「成果」「改善」「自動化」「質」「効果」等の**目的語が不明な抽象名詞を単独使用するのは禁止**。
+  必ず「〇〇の運用」「〇〇の成果」のように、何の話かわかる形で書く
+- ターゲットを示す語（業種・役割・スケール）があれば尚良いが、最低限「領域・対象物」は必須
+- hook_2 も同様に単独でトピックが特定できること（hook_1 に依存して話題を推測させない）
+
+【Hookメッセージ明瞭性ルール（絶対遵守）】
+Hookを読んだ瞬間、読者が「何を伝えたいのか」を一言で説明できなければ失格。
+トピック（何の話か）が分かっても、「だから何？」「何が問題なの？」と感じさせるHookは離脱を招く。
+
+❌ NG例（トピックは分かるが、メッセージが不明瞭）:
+  「動画広告の検証にまだ何週間も待っていませんか」（検証を待つとどうなるの？何が困るの？伝えたい課題が曖昧）
+  「成果を出すマーケターは無料５本の動画制作から開始」（何の因果関係？なぜ5本？何が言いたいのか不明）
+  「〇〇の導入をまだ検討中ですか」（検討中だと何がまずいの？メッセージが読み取れない）
+  「△△にまだ□□していませんか」型で、□□しないことの問題が明示されていないもの全般
+
+✅ OK例（読んだ瞬間にメッセージが伝わる）:
+  「動画広告のABテスト、1本に3週間かかっていませんか」（時間がかかりすぎる問題が明確）
+  「広告動画の差替だけで月10万円の制作費が消える」（コスト問題が明確）
+  「採用ページの離脱率が70%超えていませんか」（具体的な問題が一目で分かる）
+
+具体ルール:
+- Hookは「問題提起」「意外な事実」「具体的リスク」のいずれかを、読者が一読で理解できる形で伝える
+- 「〇〇していませんか」型を使う場合、〇〇しないことで生じる具体的な損失・問題が文中で暗示されていること
+- 因果関係が飛躍していたり、文脈なしでは意味が通らない構文は禁止
+- セルフチェック: そのHookだけ読んで「これは〇〇が問題だと言っている」と要約できるか？ できなければ書き直す
+
+<!-- BEGIN: 因果明示ルール追加（ロールバック可） -->
+❌ NG例（条件節と帰結の因果が暗黙で、読者に業界常識の推論を強いるもの）:
+  「数枚の画像と文字だけで動画広告を諦めていませんか」
+    → 「素材が少ない→動画は作れない」という前提を読者が自分で補完しないと意味が通らない。なぜ諦めることになるのかが文面に書かれていない
+  「限られた素材のまま広告配信していませんか」
+    → 「限られた素材」の何が問題かが文中にない
+  「LPを更新したのにCV伸び悩んでいませんか」
+    → LP更新とCVの因果が暗黙（なぜLP更新でCVが伸びるべきかの前提が省かれている）
+  「〇〇だけで／〇〇のまま／〇〇なのに／〇〇しながら」型で条件と帰結を繋ぐとき、その間の因果が読者の推論なしに読み取れないものは全てNG
+
+✅ OK例（因果が1ステップで文面から読める）:
+  「動画制作に3週間、素材集めだけで1週間溶かしていませんか」
+    → 素材集めの時間的コストが具体的な問題として明示されている
+  「画像数枚しかなく動画化を諦めた運用者が増えている」
+    → 素材不足→諦めの因果が文中で完結
+  「LP流入は倍増したのにCVだけ横ばいではありませんか」
+    → 流入とCVのギャップそのものが問題として明示されている
+
+因果明示の具体ルール:
+- 条件節（「〇〇だけで」「〇〇のまま」「〇〇なのに」「〇〇しながら」「〇〇で」）を使うときは、条件→帰結の因果を読者が業界知識なしで1ステップで読めるように書く
+- 暗黙前提（「素材不足なら動画は無理」「LP更新=CV改善」等、業界経験者しか即座に補完できない前提）に寄りかからない
+- 因果が弱い場合は、具体的な時間・金額・本数等の定量要素を入れて因果を可視化する
+- セルフチェック（追加）: そのHookを業界未経験者が読んで、文面だけで「なぜそれが問題なのか」の論理が追えるか？ 追えないなら書き直す
+<!-- END: 因果明示ルール追加 -->
+
+【セル独立完結ルール（絶対遵守）】
+各セル（hook_1, hook_2, body_a_1, body_a_2, body_b_1, body_b_2, cta_1, cta_2）は、それぞれ1つの独立した完結文にする。
+動画上では別シーン・別テロップとして表示されるため、前後のセルに意味を依存させて初めて文が成立するような書き方は禁止。
+
+❌ NG例（2セル跨ぎで1文になっている）:
+  hook_1: 「〇〇を放置すると」
+  hook_2: 「△△になるリスクがある」  ← hook_1が無いと意味が成立しない
+
+❌ NG例（hook_1が途中で切れ、hook_2が続き）:
+  hook_1: 「未入稿で安心？実はGoogleが」  ← 「Googleが」で文が途切れている。Googleが何？
+  hook_2: 「自動で簡易動画が生成されるリスクをご存知ですか」  ← hook_1の続きとして初めて意味が通る
+  → hook_1単独では「Googleが何をするのか」が分からず完結していない
+
+❌ NG例（body_a_1とbody_a_2が1文の前後半）:
+  body_a_1: 「弊社ツールは〇〇を自動で」
+  body_a_2: 「検知し即座に対応します」  ← body_a_1が無いと意味不明
+
+✅ OK例（各セルが独立完結）:
+  hook_1: 「動画未入稿でもGoogleが自動生成する事実」（それ単独で驚きが成立）
+  hook_2: 「意図しない動画が配信されるリスクとは」（それ単独で問いが成立）
+  body_a_1: 「弊社は〇〇の劣化を自動検知」（それ単独で手法が成立）
+  body_a_2: 「検知後は即座に差替まで実行」（それ単独で根拠が成立）
+
+具体ルール:
+- 各セルは助詞や動詞の途中で終わらせない（「〜を」「〜して」「〜で」で終わる等はNG）
+- 「〇〇が」「〇〇は」「実は〇〇が」で終わるセルは、主語だけ提示して述語が次セルにあるパターンなので禁止
+- 主語・述語が省略されていても、セル単独で読んで意味が通る構造にする
+- 次のセルへの接続を前提とした「前半／後半」分割は禁止
+- ストーリーの流れ（Hook→Body→CTA）はテーマの連続性で表現し、文の切れ目では繋げない
+
+【ストーリー接続ルール（絶対遵守・最重要）】
+Hookで提起した問題／リスク／驚き／未完了は、Bodyで必ず直接解決・説明する。
+機能・スペックの羅列をHookと無関係に並べるのは失敗。
+
+以下は「構造」の参考例（内容は汎用的な架空サービス）。実際の文言は必ずown_lp_summaryの内容に基づいて書くこと。NG例・OK例の単語をそのまま流用してはいけない。
+
+❌ NG構造（Hookとbodyが繋がっていない機能羅列型）:
+  Hook: 「〇〇を放置する△△リスクとは」（問題提起）
+  Body_a_1: 「当サービスは××するだけです」 ← Hookの問題に触れず手順を言うだけ
+  Body_a_2: 「○○を△分で自動生成」 ← 問題を解決したか不明
+  Body_b_1: 「□□機能も使えます」 ← 話題が別の機能に跳ぶ
+
+✅ OK構造（問題 → 直接解決 → 根拠の流れ）:
+  Hook: 「〇〇を放置する△△リスクとは」（問題提起）
+  Body_a_1: 「弊社は〇〇の劣化を自動検知」 ← Hookの問題に直接対応
+  Body_a_2: 「検知後は即座に差替まで実行」 ← 解決方法の具体
+  Body_b_1: 「本メソッドで△△を平均30%抑制」 ← その解決が効く定量根拠
+
+具体ルール:
+- Body_a_1は、Hookで提起した問い／リスク／驚きに対する**直接的な答え**から始める
+- Hookの中心キーワード（そのサービス・業界に応じた固有の用語）がBody内に1つ以上登場する（同義語可）
+- Body_aは「Hookの問題をどう解決するか」、Body_bは「その解決がなぜ信頼できるか（別角度の根拠）」という役割分担
+- CTAはHook〜Bodyで語った文脈の自然な延長にする
+- 機能・スペック・料金等は、Hookのテーマに紐づけて語る。単なる機能羅列は禁止
+- ❗内容は必ずown_lp_summaryに書かれた実際のサービスの文言・概念を使うこと。上記参考例の「〇〇」「△△」「放置」「劣化」等の単語を流用してはいけない
+
+【同一バリエーション内セル間重複禁止ルール（絶対遵守）】
+1本の動画（同一インデックス[i]）の中で、hook / body_a / body_b / cta が同じ主張・同じファクトを繰り返すのは禁止。
+各セルは異なる役割を担い、異なる情報を伝えなければならない。
+
+❌ NG例（HookとBodyが同じことを言っている）:
+  hook_1: 「最短5分で20種の動画が同時に完成する裏側とは」
+  body_b_1: 「最短5分で最大20本の動画を同時に生成できます」
+  → 「最短5分で20本同時生成」という同一ファクトをHookとBodyで繰り返しているだけ
+
+❌ NG例（数値や表現を微妙に変えただけの実質重複）:
+  hook_1: 「たった5分で大量の動画を一括作成」
+  body_a_1: 「最短5分で20本の動画を同時に生成」
+  → 表現は違うが伝えている情報は同じ（短時間×大量生成）
+
+✅ OK例（各セルが異なる情報を担当）:
+  hook_1: 「動画広告のABテスト、1本に3週間かかっていませんか」（問題提起: 時間の課題）
+  body_a_1: 「URLを入れるだけで訴求別に動画を自動生成」（解決策: 仕組み）
+  body_b_1: 「導入企業はテスト本数が月5倍に増加」（根拠: 成果の数値）
+  cta_1: 「まずは無料で5本の動画を試作する」（行動喚起）
+
+具体ルール:
+- Hook = 問題提起・興味喚起、Body_a = 解決策の仕組み、Body_b = 信頼の根拠（実績・数値・権威）、CTA = 行動喚起。この役割分担を厳守
+- 同じ数値（「5分」「20本」等）がHookとBodyの両方に主役として登場するのは原則禁止（片方に集約する）
+- 「言い換えただけ」の実質重複もNG。セルフチェック: 各セルの要約を並べて、同じ一文に集約できたら重複
+
+【接続詞の自然さルール（最重要）】
+- 「だから」「さらに」「実際」「すると」「つまり」「例えば」などの接続詞は、文脈的に自然な場合のみ使う
+- 機械的に冒頭に置いて「根拠文っぽく見せる」のは禁止。前の文を具体的に受けていなければ接続詞を使わない
+- 2バリエーション内で同じ接続詞を連続使用しない（バリエーションをつける）
+- 接続詞を使わず、主体明示や固有名詞・数値で自然に繋げるのが基本
+
+【既視感・テンプレ感の排除】
+- 「失敗しない」「必見」「効果的」「最適」「画期的」「革命的」等の抽象・陳腐ワード禁止
+- 広告でよく見る定型句（「もう〇〇に悩まない」「〇〇の常識が変わる」等）は避ける
+- 具体的な数値、固有名詞、業界用語、顧客の実際の声の質感を優先
+
+【心理効果の強度】
+- 「${pattern.name}」の心理効果（${pattern.desc}）が実際に起きる強度で書くこと
+- パターンの効果を弱める表現（婉曲・中和・保険）は使わない
+- 「失敗しない」「必見」等の抽象表現禁止
+
+${pattern.key === 'halo' ? `
+🚨🚨🚨【⑤権威パターン専用ルール（最優先・絶対遵守・違反で失敗）】🚨🚨🚨
+
+このパターンのHookは必ず「**〇〇ほど、〇〇している**」系の権威提示構文で書く。
+機能説明・連携機能・作り手のスペック・最新手法紹介は、**どれだけサービスが良くても権威にはならない**。
+権威パターンの本質は「成功している／優れている主体が、既にこの行動を取っている事実」を見せ、読者に「自分もやるべきだ」と思わせることである。
+
+🔴 最優先使用すべきHook構文（これを第一選択にすること）:
+  ★「〇〇ほど、△△している」（最も強い権威構文。成功者ほど〜という対比構造）
+  ★「成果を出す〇〇ほど、△△を選んでいる」
+  ★「できる〇〇ほど、△△に投資している」
+  ★「上位〇〇ほど、△△を当たり前にしている」
+
+✅ その他の使ってよい権威構文:
+  - 「成果を出す〇〇の共通点は△△」（勝ち組の共通項）
+  - 「トップ〇〇が選ぶ△△」（上位層の選択）
+  - 「導入〇〇社が認めた△△」（導入実績で信頼）
+  - 「上位〇〇%がやっている△△」（統計的な権威）
+  - 「〇〇業界のプロが推奨する△△」（専門家推奨）
+  ※〇〇△△はown_lp_summaryの実在する数値・事実・ターゲット名で埋める
+  ※「〇〇」には必ず優秀・成功・トップ・できる系の主体修飾語を入れる（ただの「マーケター」ではなく「成果を出すマーケター」「トップマーケター」等）
+
+❌❌❌ 絶対に使ってはいけないHook構文（過去に何度も出てしまい失敗している）:
+  - 「〇〇できる最新の△△ツール」（機能説明・機能そのものは権威にならない）
+  - 「〇〇と連携できる△△」（連携は機能説明）
+  - 「〇〇エンジニアが構築した△△」（作り手スペックは権威にならない。使う側の話が必要）
+  - 「〇〇を活用した△△」（使い方説明）
+  - 「〇〇で△△を量産する最新手法」（手法紹介）
+  - 「最先端の〇〇」「業界初の〇〇」（サービス自慢は権威ではない）
+  →これらは全てサービス側の自己主張。権威パターンは「誰が使っているか／選んでいるか／やっているか」で語る
+
+📌 具体NG例（絶対再生産しないこと）:
+  ❌「Google広告と連携できる最新の動画生成ツール」
+    → 連携機能の説明。誰が使っているか不明。権威ゼロ
+  ❌「フルスタックエンジニアが構築した動画生成ツール」
+    → 作り手のスペック紹介。使う側の権威層の話ではない
+  ✅（同じ内容を権威パターンに直す例）
+    「成果を出すマーケターほど、動画20本でPDCAを回している」
+    「トップ広告主ほど、訴求別に動画を量産している」
+    「上位マーケターほど、仮説検証に圧倒的な量を投じている」
+
+🔍 halo生成前セルフチェック（全て✅でなければ書き直す）:
+  □ Hookの主語は「優れた／成功している／トップの／できる〇〇」になっているか？
+  □ 述語は「〜している／〜を選んでいる／〜に投資している」など、既に行動している事実を示しているか？
+  □ 「〇〇ほど」「〇〇の共通点」「上位〇〇」「導入〇〇社」等の権威提示語が入っているか？
+  □ サービス・ツール・機能・連携・最新・作り手の話になっていないか？
+  □ 機能説明に「ほど」「共通点」を後付けしただけの偽装になっていないか？（例: 「最新ツールほど連携できる」はNG。主語が機能になっているため）
+
+🧠【述語の論理整合性ルール（絶対遵守・最重要）】
+「成果を出す〇〇ほど△△している」の△△（述語）は**成功と論理的に相関する行動**でなければ、権威構文が論理矛盾を起こして逆に怪しく聞こえる。
+成功者は予算・時間・コミットがある存在。その逆の「無料／気軽／試行／入門」行動を述語に置くのは絶対NG。
+
+❌ 論理矛盾する述語（絶対禁止）:
+  - 「成果を出す事業会社ほど**無料で動画検証する**」（成功者なのにタダ？矛盾）
+  - 「トップマーケターほど**無料で5本試す**」（成功者＝予算ある、のにお試し？矛盾）
+  - 「できる企業ほど**とりあえず始めてみる**」（コミット不足を讃えている、意味不明）
+  - 「上位広告主ほど**気軽に動画を作る**」（気軽＝コミット低＝権威と相反）
+  →これらは「無料／試す／検証／お試し／とりあえず／気軽／簡単／ちょっと／まずは」等、**CTA的・入門的・試行的な語**を述語に置いてしまっている。CTAで使う語をhalo Hookに使うな
+
+✅ 論理整合する述語（成功と相関する行動）:
+  - 「成果を出す事業会社ほど**動画20本でPDCAを回している**」（量・継続＝コミット）
+  - 「トップマーケターほど**訴求別にABテストを徹底している**」（厳密さ＝プロ的）
+  - 「できる広告主ほど**仮説検証に量を投じている**」（投資＝成功者の特権）
+  - 「上位10%の企業ほど**クリエイティブの多角化に取り組んでいる**」（実践行動）
+  - 「導入100社の共通点は**訴求のパターン化と量産**」（プロセスの成熟）
+  →述語は「投資／徹底／量を投じる／継続／取り組む／依頼する／重視する／導入している／回している／実践している」等、**コミット系・実践系・量系・継続系**の動詞を使う
+
+【述語選定チェック】
+halo Hookを書く前に、述語候補を以下でテストせよ：
+  Q.「成果を出すトップ〇〇ほど、△△している」の△△に入れて、論理的に自然か？
+  - 「無料で検証する」→ NO（成功者なら予算あるはずで矛盾）
+  - 「気軽に試す」→ NO（コミット低＝権威と相反）
+  - 「PDCAに量を投じている」→ YES（成功＝投資、整合）
+  - 「訴求別にテストを徹底」→ YES（厳密さ＝プロ的、整合）
+無料・試行・入門・気軽系のキーワードは絶対に述語に入れない（それらはCTA領域の語彙）
+` : ''}
+
+${pfMatch ? `
+🚨【最終確認（出力直前に必ず照合）】
+- [0]（v1）の hook_1 は「${pfMatch.angle_v1 || ''}」の訴求を使っているか？ → 使っていなければ書き直す
+- [1]（v2）の hook_1 は「${pfMatch.angle_v2 || ''}」の訴求を使っているか？ → 使っていなければ書き直す
+- v1とv2が同じ訴求内容になっていないか？ → 同じなら片方を書き直す
+- Body/CTAはHookの訴求に論理的に繋がっているか？
+上記4点を満たしていないJSONは出力禁止。
+` : ''}
+【出力形式】以下のJSONのみを返す（前後の説明文は一切不要）。
+${is40 ? `
+{
+  "hook_1": ["v1は${pfMatch?.angle_v1||'訴求A'}を使った文", "v2は${pfMatch?.angle_v2||'訴求B'}を使った文"],
+  "hook_2": ["文字列", "文字列"],
+  "body_a_1": ["文字列", "文字列"],
+  "body_a_2": ["文字列", "文字列"],
+  "body_b_1": ["文字列", "文字列"],
+  "body_b_2": ["文字列", "文字列"],
+  "cta_1": ["文字列", "文字列"],
+  "cta_2": ["文字列", "文字列"]
+}` : `
+{
+  "hook_1": ["v1は${pfMatch?.angle_v1||'訴求A'}を使った文", "v2は${pfMatch?.angle_v2||'訴求B'}を使った文"],
+  "hook_2": [],
+  "body_a_1": ["文字列", "文字列"],
+  "body_a_2": [],
+  "body_b_1": ["文字列", "文字列"],
+  "body_b_2": [],
+  "cta_1": ["文字列", "文字列"],
+  "cta_2": []
+}`}
+
+出力前に必ず各文字列の文字数を数え、制限違反があれば満たすまで書き直してからJSONを返してください。`;
+}
+
+// --- Render prompt previews ---
+function renderPromptPreviews() {
+  const inputs = getInputs();
+  const wrap = document.getElementById('prompt-previews');
+  const makeBlock = (key, title, defaultText, isOpen) => {
+    const edited = !!(state.promptOverrides[key] && state.promptOverrides[key].trim());
+    const effective = getEffectivePrompt(key, defaultText);
+    return `
+      <details style="margin-bottom:8px;" ${isOpen ? 'open' : ''}>
+        <summary style="cursor:pointer;font-weight:600;font-size:13px;padding:6px 0;">
+          ${title}${edited ? ' <span style="color:#d70015;font-size:11px;">(編集済み)</span>' : ''}
+        </summary>
+        <div style="display:flex;gap:4px;margin:6px 0;">
+          <button class="mini-btn" data-action="save" data-key="${key}">💾 保存</button>
+          <button class="mini-btn" data-action="reset" data-key="${key}">↺ デフォルトに戻す</button>
+          <span style="font-size:11px;color:#888;align-self:center;">※編集内容はlocalStorageに保存され、生成時にも使われます</span>
+        </div>
+        <textarea class="prompt-editor" data-key="${key}" data-default="${escapeHtml(defaultText)}" style="width:100%;min-height:280px;font-family:'SF Mono',Menlo,monospace;font-size:11px;padding:10px;border-radius:8px;border:1px solid #d2d2d7;background:#1d1d1f;color:#f5f5f7;">${escapeHtml(effective)}</textarea>
+      </details>
+    `;
+  };
+  let html = makeBlock('lp', '📄 LP要約プロンプト（URL→要約ボタン使用時）', buildLpSummaryPrompt(inputs.own_lp_url), true);
+  html += '<div style="border-top:1px solid #e0e0e5;margin:16px 0;padding-top:12px;font-size:12px;font-weight:700;color:#666;">以下、5パターン生成プロンプト（パターンごとに並列で呼び出し）</div>';
+  html += PATTERNS.map(p => makeBlock(p.key, p.name, buildPrompt(p, inputs), false)).join('');
+  // Critique & rewrite prompts (sample uses empathy pattern with placeholder result)
+  html += '<div style="border-top:1px solid #e0e0e5;margin:16px 0;padding-top:12px;font-size:12px;font-weight:700;color:#666;">以下、ブラッシュアップ用プロンプト（批評→書き直し）</div>';
+  const samplePattern = PATTERNS[0];
+  const sampleResult = state.results[samplePattern.key] || { _note: '（生成後の結果がここに入る）' };
+  html += makeBlock('critique', '🔍 批評プロンプト（テンプレート・生成結果が埋め込まれる）', buildCritiquePrompt(samplePattern, sampleResult, inputs), false);
+  const sampleCrit = state.critiques[samplePattern.key] || { _note: '（批評結果がここに入る）' };
+  html += makeBlock('rewrite', '🔧 書き直しプロンプト（テンプレート・批評結果が埋め込まれる）', buildRewritePrompt(samplePattern, sampleResult, sampleCrit, inputs), false);
+  html += '<div style="border-top:1px solid #e0e0e5;margin:16px 0;padding-top:12px;font-size:12px;font-weight:700;color:#666;">以下、無音で走る自動修正プロンプト（ユーザーには表示されない）</div>';
+  const sampleAnalysis = state.lpAnalysis || { pattern_fit: [], summary: '（LP分析後の結果がここに入る）', service: {}, messaging_angles: [] };
+  html += makeBlock('rebalance', '⚖️ LP分析アンカー語再配分プロンプト（P-MAX等が3回以上出たら再配分）', buildRebalancePrompt(inputs, sampleAnalysis, [{word:'サンプル',count:3}]), false);
+  html += makeBlock('autofix', '🛠 違反セル自動修正プロンプト（文字数/独立完結/事実/トピック明示/メッセージ明瞭性をチェック）', buildAutoFixPrompt(samplePattern, sampleResult, inputs), false);
+  html += makeBlock('diversity', '🌈 訴求面分散監査プロンプト（全10スロットの訴求面集中を解消）', buildDiversityPrompt(inputs, [{pattern_key:'empathy',pattern_name:'① 共感',idx:0,hook:'（サンプル）'}]), false);
+  wrap.innerHTML = html;
+
+  // wire up editors
+  wrap.querySelectorAll('.prompt-editor').forEach(ta => {
+    ta.oninput = () => {
+      state.promptOverrides[ta.dataset.key] = ta.value;
+      savePromptOverrides();
+    };
+  });
+  wrap.querySelectorAll('[data-action]').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.dataset.key;
+      const ta = wrap.querySelector(`.prompt-editor[data-key="${key}"]`);
+      if (btn.dataset.action === 'save') {
+        state.promptOverrides[key] = ta.value;
+        savePromptOverrides();
+        alert('保存しました');
+        renderPromptPreviews();
+      } else if (btn.dataset.action === 'reset') {
+        if (!confirm('デフォルトプロンプトに戻しますか？（編集内容は破棄されます）')) return;
+        delete state.promptOverrides[key];
+        savePromptOverrides();
+        renderPromptPreviews();
+      }
+    };
+  });
+}
+function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+// --- Gemini API call ---
+async function callGemini(prompt, inputs, opts = {}) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${inputs.model}:generateContent?key=${encodeURIComponent(inputs.api_key)}`;
+  let thinkingBudget = opts.thinkingBudget ?? parseInt(inputs.gen_thinking_budget ?? '-1', 10);
+  // Gemini 3 does not allow thinkingBudget=0
+  if (thinkingBudget === 0 && /gemini-3/.test(inputs.model || '')) thinkingBudget = -1;
+  const includeThoughts = inputs.gen_include_thoughts === 'true';
+  const generationConfig = {
+    temperature: opts.temperature ?? parseFloat(inputs.gen_temperature || '0.9'),
+    maxOutputTokens: opts.maxOutputTokens ?? parseInt(inputs.gen_max_tokens || '4096', 10),
+    topP: parseFloat(inputs.gen_top_p || '0.95'),
+    topK: parseInt(inputs.gen_top_k || '40', 10),
+    ...(opts.responseMimeType !== null && { responseMimeType: opts.responseMimeType ?? 'application/json' })
+  };
+  if (thinkingBudget !== -1 || includeThoughts) {
+    generationConfig.thinkingConfig = {};
+    if (thinkingBudget !== -1) generationConfig.thinkingConfig.thinkingBudget = thinkingBudget;
+    if (includeThoughts) generationConfig.thinkingConfig.includeThoughts = true;
+  }
+  const body = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig };
+  if (opts.useUrlContext) body.tools = [{ url_context: {} }];
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`API ${res.status}: ${txt}`);
+  }
+  const data = await res.json();
+  const finishReason = data.candidates?.[0]?.finishReason;
+  // Concatenate all text parts (thinking mode can return multiple parts)
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const text = parts.filter(p => p.text && !p.thought).map(p => p.text).join('');
+  if (!text) throw new Error(`応答が空です (finishReason=${finishReason}): ` + JSON.stringify(data).slice(0, 500));
+  if (opts.raw) return text;
+  const parsed = tryParseJson(text);
+  if (parsed) return parsed;
+  // Auto-retry once on truncation with double tokens and thinking off
+  if (finishReason === 'MAX_TOKENS' && !opts._retried) {
+    const boosted = { ...opts, _retried: true, maxOutputTokens: (opts.maxOutputTokens ?? parseInt(inputs.gen_max_tokens || '8192', 10)) * 2 };
+    // Turn off thinking only if model allows it (Gemini 3 doesn't)
+    const retryBudget = /gemini-3/.test(inputs.model || '') ? '-1' : '0';
+    const retryInputs = { ...inputs, gen_thinking_budget: retryBudget };
+    return await callGemini(prompt, retryInputs, boosted);
+  }
+  throw new Error(`JSON解析失敗 (finishReason=${finishReason}). レスポンスが途中で切れている可能性があります。詳細設定でthinkingBudgetを0にするかmaxOutputTokensを増やしてください。\n\n生レスポンス末尾:\n${text.slice(-800)}`);
+}
+
+// --- Robust JSON parser with repair for truncated responses ---
+function tryParseJson(text) {
+  // strip markdown code fences
+  let t = text.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
+  const m = t.match(/\{[\s\S]*\}/);
+  const candidate = m ? m[0] : t;
+  try { return JSON.parse(candidate); } catch {}
+  // attempt repair: close unclosed brackets/quotes
+  try { return JSON.parse(repairJson(candidate)); } catch {}
+  // fallback: find first `{` and try incremental truncation + close
+  const start = t.indexOf('{');
+  if (start >= 0) {
+    const tail = t.slice(start);
+    try { return JSON.parse(repairJson(tail)); } catch {}
+  }
+  return null;
+}
+function repairJson(s) {
+  // close open strings
+  let inStr = false, esc = false;
+  for (const c of s) {
+    if (esc) { esc = false; continue; }
+    if (c === '\\') { esc = true; continue; }
+    if (c === '"') inStr = !inStr;
+  }
+  if (inStr) s += '"';
+  // trim trailing commas
+  s = s.replace(/,\s*$/g, '');
+  // balance brackets
+  const stack = [];
+  inStr = false; esc = false;
+  for (const c of s) {
+    if (esc) { esc = false; continue; }
+    if (c === '\\') { esc = true; continue; }
+    if (c === '"') inStr = !inStr;
+    if (inStr) continue;
+    if (c === '{' || c === '[') stack.push(c);
+    else if (c === '}' && stack[stack.length-1] === '{') stack.pop();
+    else if (c === ']' && stack[stack.length-1] === '[') stack.pop();
+  }
+  while (stack.length) {
+    const open = stack.pop();
+    s += open === '{' ? '}' : ']';
+  }
+  // remove dangling commas before closing
+  s = s.replace(/,\s*([}\]])/g, '$1');
+  return s;
+}
+
+// --- Fetch LP from URL and summarize via Gemini url_context ---
+document.getElementById('btn-fetch-lp').onclick = async () => {
+  const inputs = getInputs();
+  const url = document.getElementById('own_lp_url').value.trim();
+  if (!inputs.api_key) { alert('APIキーを入力してください'); return; }
+  if (!url) { alert('URLを入力してください'); return; }
+  const btn = document.getElementById('btn-fetch-lp');
+  const ta = document.getElementById('own_lp_summary');
+  btn.disabled = true; btn.textContent = '取得中...';
+  try {
+    const prompt = getEffectivePrompt('lp', buildLpSummaryPrompt(url));
+    // 速度優先: 思考バジェットを2048にキャップ（デフォルトは無制限なので遅い）
+    const analysis = await callGemini(prompt, inputs, { useUrlContext: true, temperature: 0.3, maxOutputTokens: 16384, thinkingBudget: 1024 });
+    state.lpAnalysis = analysis;
+    // pattern_fit のアンカー語重複を検知して、必要ならサイレントに再配分
+    try {
+      btn.textContent = '再配分中...';
+      await rebalancePatternFit(inputs);
+      await enforcePatternFitAnchorLimit(inputs);
+    } catch (_) { /* 失敗は静かに無視 */ }
+    // own_lp_summary に要約＋訴求割当を表示（再配分後のstate.lpAnalysisを使う）
+    ta.value = buildLpSummaryText(state.lpAnalysis);
+    ta.dispatchEvent(new Event('input'));
+    renderLpAnalysis();
+  } catch (e) {
+    alert('取得に失敗しました: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'URL→要約';
+  }
+};
+
+function buildLpSummaryText(analysis) {
+  const PATTERN_NAME = { empathy:'① 共感', paradigm:'② 意外性', zeigarnik:'③ 未完了', loss:'④ 危機感', halo:'⑤ 権威' };
+  let text = (analysis.summary || '').trim();
+  const pf = (analysis.pattern_fit || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+  if (pf.length) {
+    text += '\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n';
+    text += '🎯 5パターン × v1/v2 訴求割当(スコア順):\n';
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━\n';
+    for (const p of pf) {
+      const name = PATTERN_NAME[p.pattern_key] || p.pattern_key;
+      text += `\n【${name}】スコア: ${p.score || '-'}\n`;
+      text += `  v1: ${p.angle_v1 || '未設定'}\n`;
+      text += `    → Hook種: ${p.hook_seed_v1 || p.hook_seed || '未設定'}\n`;
+      text += `  v2: ${p.angle_v2 || '未設定'}\n`;
+      text += `    → Hook種: ${p.hook_seed_v2 || '未設定'}\n`;
+      if (p.psychology_fit_reason) text += `  心理適合: ${p.psychology_fit_reason}\n`;
+    }
+  }
+  return text;
+}
+
+function renderLpAnalysis() {
+  const wrap = document.getElementById('lp-analysis-wrap');
+  const box = document.getElementById('lp-analysis');
+  if (!state.lpAnalysis) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  const a = state.lpAnalysis;
+  const PATTERN_NAME = { empathy:'共感', paradigm:'意外性', zeigarnik:'未完了', loss:'危機感', halo:'権威' };
+  const pf = (a.pattern_fit || []).slice().sort((x,y) => (y.score||0) - (x.score||0));
+  let html = '<div style="background:#f5f5f7;padding:12px;border-radius:8px;font-size:12px;">';
+  if (a.service) {
+    html += `<div style="margin-bottom:8px;"><b>🏢 ${escapeHtml(a.service.name||'')}</b> — ${escapeHtml(a.service.one_liner||'')}</div>`;
+    html += `<div style="margin-bottom:8px;"><b>🎯 ターゲット:</b> ${escapeHtml(a.service.target||'')}</div>`;
+    if (a.service.strengths?.length) html += `<div style="margin-bottom:8px;"><b>💪 強み:</b> ${a.service.strengths.map(escapeHtml).join(' / ')}</div>`;
+    if (a.service.proofs?.length) html += `<div style="margin-bottom:8px;"><b>✅ 実績:</b> ${a.service.proofs.map(escapeHtml).join(' / ')}</div>`;
+  }
+  if (a.messaging_angles?.length) {
+    html += '<div style="margin:12px 0 4px;"><b>📐 訴求軸:</b></div><ul style="margin:4px 0 8px;padding-left:20px;">';
+    html += a.messaging_angles.map(m => `<li><b>${escapeHtml(m.angle||'')}</b> — ${escapeHtml(m.rationale||'')}<br><span style="color:#888;font-size:11px;">根拠: ${escapeHtml(m.evidence||'')}</span></li>`).join('');
+    html += '</ul>';
+  }
+  if (pf.length) {
+    html += '<div style="margin:12px 0 4px;"><b>🎯 5パターン × v1/v2 訴求割当(スコア順):</b></div>';
+    html += '<table style="width:100%;font-size:11px;margin-top:4px;border-collapse:collapse;"><thead><tr style="background:#e8e8ed;"><th style="text-align:left;padding:4px;">パターン</th><th style="padding:4px;">スコア</th><th style="text-align:left;padding:4px;">v</th><th style="text-align:left;padding:4px;">切り口</th><th style="text-align:left;padding:4px;">Hook種</th></tr></thead><tbody>';
+    for (const p of pf) {
+      const name = PATTERN_NAME[p.pattern_key] || p.pattern_key;
+      const color = p.score >= 70 ? '#155724' : p.score >= 50 ? '#856404' : '#888';
+      const av1 = p.angle_v1 || p.suggested_angle || '';
+      const av2 = p.angle_v2 || '';
+      const hs1 = p.hook_seed_v1 || p.hook_seed || '';
+      const hs2 = p.hook_seed_v2 || '';
+      html += `<tr style="border-top:1px solid #ddd;"><td rowspan="2" style="padding:4px;vertical-align:top;"><b>${name}</b></td><td rowspan="2" style="text-align:center;color:${color};font-weight:700;padding:4px;vertical-align:top;">${p.score||''}</td><td style="padding:4px;">v1</td><td style="padding:4px;">${escapeHtml(av1)}</td><td style="padding:4px;">${escapeHtml(hs1)}</td></tr>`;
+      html += `<tr><td style="padding:4px;">v2</td><td style="padding:4px;">${escapeHtml(av2)}</td><td style="padding:4px;">${escapeHtml(hs2)}</td></tr>`;
+      const reason = p.psychology_fit_reason || p.rationale || '';
+      if (reason) html += `<tr><td colspan="5" style="color:#666;font-size:10px;padding:2px 4px 6px;">心理適合: ${escapeHtml(reason)}</td></tr>`;
+    }
+    html += '</tbody></table>';
+  }
+  if (a.distribution_check) {
+    const dc = a.distribution_check;
+    html += '<div style="margin-top:10px;padding:8px;background:#fffbea;border-radius:6px;font-size:11px;">';
+    html += '<b>🔍 重複チェック(自己検証):</b><br>';
+    if (dc.within_pattern_unique !== undefined) html += `同一パターン内v1/v2別角度: <b>${dc.within_pattern_unique ? 'OK' : 'NG'}</b><br>`;
+    if (dc.cross_pattern_max_repeat !== undefined) html += `パターン跨ぎ最大重複回数: <b>${dc.cross_pattern_max_repeat}</b>(上限2回)<br>`;
+    if (dc.notes) html += `<span style="color:#666;">${escapeHtml(dc.notes)}</span>`;
+    html += '</div>';
+  }
+  if (a.top_recommendation) {
+    const name = PATTERN_NAME[a.top_recommendation.pattern_key] || a.top_recommendation.pattern_key;
+    html += `<div style="margin-top:12px;padding:10px;background:#eef5ff;border-radius:6px;"><b>⭐ 推奨パターン: ${name}</b>(確信度 ${a.top_recommendation.confidence})<br><span style="font-size:11px;">${escapeHtml(a.top_recommendation.reason||'')}</span></div>`;
+  }
+  html += '</div>';
+  box.innerHTML = html;
+}
+
+// --- Generate ---
+document.getElementById('btn-generate').onclick = async () => {
+  const inputs = getInputs();
+  if (!inputs.api_key) { alert('APIキーを入力してください'); return; }
+  if (!inputs.own_lp_summary) { alert('own_lp_summaryは必須です'); return; }
+
+  state.results = {};
+  switchTab('output');
+  const status = document.getElementById('status-box');
+  status.innerHTML = '';
+
+  const tasks = PATTERNS.map(async p => {
+    addStatus(p.key, `${p.name} 生成中...`, 'pending');
+    try {
+      const prompt = getEffectivePrompt(p.key, buildPrompt(p, inputs));
+      const json = await callGemini(prompt, inputs);
+      // 修正前の結果は描画せずメモリにのみ保持（ユーザーに中間状態を見せない）
+      state.results[p.key] = json;
+      try {
+        const fixed = await autoFixCells(p, json, inputs);
+        if (fixed) state.results[p.key] = fixed;
+      } catch (_) { /* fix失敗は静かに無視 */ }
+      updateStatus(p.key, `${p.name} 完了`, 'ok');
+    } catch (e) {
+      updateStatus(p.key, `${p.name} エラー: ${e.message}`, 'err');
+    }
+    // 中間renderSheet()は呼ばない（全修正完了後に一括描画）
+  });
+  await Promise.all(tasks);
+
+  // LP分析の訴求割当が反映されているか検証し、未反映のHookだけを割当に沿って書き直す
+  try {
+    await enforceAngleAlignment(inputs);
+  } catch (_) { /* 失敗時は静かに無視 */ }
+
+  // 全10スロットのHookの意味クラスタを検証：同一パターン内v1/v2被り禁止＋全体で同一クラスタ最大2回
+  try {
+    await enforceHookSimilarity(inputs);
+  } catch (_) { /* 失敗時は静かに無視 */ }
+
+  // 訴求面（痛み/時短/質/成果/実績/独自性/価格/使いやすさ/信頼/新前提）の集中を監査し、
+  // 3スロット以上同じ面に集中していたら3つ目以降を別の面に書き直す
+  try {
+    await autoFixDiversity(inputs);
+  } catch (_) { /* 失敗時は静かに無視 */ }
+
+  // 権威(halo)パターンのHookが権威提示構文になっているか検証し、なっていなければ書き直す
+  try {
+    await enforceHaloAuthority(inputs);
+  } catch (_) { /* 失敗時は静かに無視 */ }
+
+  // 全ての無音修正が完了してから初めてシート描画
+  renderSheet();
+};
+
+// LLMに訴求内容でクラスタリングさせ、ローカル集計でクラスタ上限(2)と同パターン内重複を決定論的に強制
+// slotsTexts: [{ pattern_key, idx, text }]
+// 戻り値: [{ pattern_key, idx, cluster_id, cluster_label }]
+async function classifySlotsByMeaning(inputs, slotsTexts, axis) {
+  const slotLines = slotsTexts.map((s, i) => `[${i}] pattern=${s.pattern_key} v${s.idx+1} : "${s.text}"`).join('\n');
+  const prompt = `あなたは広告訴求アナリストです。以下の${slotsTexts.length}個の${axis}を、**訴求内容の本質的な意味**でクラスタリングしてください。同じメッセージを伝えているものは、**表現や固有名詞が違っても必ず同じクラスタ**にまとめます。
+
+【クラスタリング基準（厳格に）】
+- 「その${axis}が読者に何を訴えているか」の中核で分類する
+- 以下は全て**同じクラスタ**として扱う:
+  * 「〇〇の質に不満」「クオリティに妥協」「成果物の完成度の低さ」「デザインに不満」→ 質への不満
+  * 「時間がかかる」「工数が多い」「手間がかかる」「企画に時間がとられる」→ 時短面
+  * 「成果が出ない」「CVが伸びない」「ROIが悪い」「結果に繋がらない」→ 成果/結果面
+  * 「ノウハウがない」「知見が足りない」「属人化している」→ ノウハウ面
+  * 「〇〇を放置していませんか」「〇〇のままでいいですか」→ 放置/現状固定への警鐘
+- **同じ機能・同じ動作フローを別の言い方で描写しているだけのものも同一クラスタ**:
+  * 「URL入力→競合比較で勝てる訴求を提案」と「URL入力→裏側で自動比較分析が走る」→ 同一（LP入力→自動競合比較）
+  * 「〇〇するツールの正体」と「〇〇を自動実行する仕組み」→ 同一（同じ機能を「正体」「仕組み」と言い換えただけ）
+  * 判定法: 2つの訴求を一文に要約して同じ文になるなら同一クラスタ
+- 日本語・英語・カタカナは無視して**伝わる中身**で判断
+- 固有名詞（P-MAX, Google広告, Shopify 等）が同じでも、言っていることが違えば別クラスタ
+- 逆に、固有名詞が違っても言っていることが同じなら同一クラスタ
+
+【重要】
+- 10個中3個以上を同じクラスタに押し込むのは、読者視点で「本当に同じ訴求」と言えるときだけ
+- 迷ったら**同じクラスタに寄せる**（厳格側で判定）— 違反を見逃すより、違反として拾う方が安全
+- 目安: 10スロットなら5〜8クラスタに分かれるのが健全
+- **特に同一パターン内のv1/v2が同じクラスタに入っていないか最優先で確認すること**（例: pattern=empathy の v1 と v2 が同じクラスタ＝絶対違反）
+- **カタカナ・英字・数字が違っても中身が同じなら同一クラスタ**（例: 「動画制作20本」と「クリエイティブを量産」→ 同じ「量産」クラスタ）
+- **主語が違っても述語の主張が同じなら同一クラスタ**（例: 「マーケターは◯◯」「事業会社は◯◯」で述部が同趣旨なら同一）
+
+【対象】
+${slotLines}
+
+【出力形式】JSONのみ。説明文・コードブロック禁止。全slot_indicesを網羅すること（取りこぼし禁止）。
+{
+  "clusters": [
+    {"cluster_id": 1, "label": "質への不満", "slot_indices": [0, 2, 5]},
+    {"cluster_id": 2, "label": "時短面", "slot_indices": [1, 4]}
+  ]
+}`;
+
+  const res = await callGemini(prompt, inputs, { temperature: 0.1, maxOutputTokens: 2048 });
+  if (!Array.isArray(res?.clusters)) return null;
+  const mapping = new Array(slotsTexts.length).fill(null);
+  for (const c of res.clusters) {
+    if (!Array.isArray(c.slot_indices)) continue;
+    for (const idx of c.slot_indices) {
+      if (idx >= 0 && idx < slotsTexts.length) mapping[idx] = { cluster_id: c.cluster_id, cluster_label: c.label || '' };
+    }
+  }
+  return mapping;
+}
+
+// LP分析の訴求割当が実際の出力（Hook+Body+CTA）に反映されているか検証→未反映スロットを書き直し
+async function enforceAngleAlignment(inputs) {
+  if (!state.lpAnalysis?.pattern_fit?.length) return;
+  const is40 = inputs.video_length === '40s';
+  const bodyCols = is40
+    ? ['hook_1','hook_2','body_a_1','body_a_2','body_b_1','body_b_2','cta_1','cta_2']
+    : ['hook_1','body_a_1','body_b_1','cta_1'];
+
+  // 1. 各パターンのv1/v2について、割当訴求と実際の全セル内容を収集
+  const slots = [];
+  for (const pf of state.lpAnalysis.pattern_fit) {
+    const r = state.results[pf.pattern_key];
+    if (!r?.hook_1) continue;
+    for (let i = 0; i < 2; i++) {
+      const assignedAngle = i === 0 ? pf.angle_v1 : pf.angle_v2;
+      if (!assignedAngle) continue;
+      const cells = {};
+      for (const col of bodyCols) {
+        cells[col] = r[col]?.[i] || '';
+      }
+      slots.push({ pattern_key: pf.pattern_key, idx: i, assignedAngle, cells });
+    }
+  }
+  if (slots.length === 0) return;
+
+  // 2. LLMに一括で「各スロットの全セルが割当訴求の文脈に沿っているか」を判定
+  const checkLines = slots.map((s, i) => {
+    const cellText = Object.entries(s.cells).map(([k,v]) => `    ${k}: 「${v}」`).join('\n');
+    return `[${i}] pattern=${s.pattern_key} v${s.idx+1}\n    割当訴求: 「${s.assignedAngle}」\n${cellText}`;
+  }).join('\n\n');
+
+  const checkPrompt = `あなたは広告訴求の適合チェッカーです。以下の各スロットについて、割当訴求とシナリオ全体（Hook〜Body〜CTA）の整合性を判定してください。
+
+【判定基準】
+- Hook: 割当訴求の中核メッセージが反映されているか
+- Body: Hookで提起した訴求の文脈に沿った解決策・根拠を述べているか（訴求と無関係な機能羅列になっていたらNG）
+- CTA: Hookの訴求に動機づけられた行動喚起になっているか
+- 全体として「この訴求の広告」として一貫しているか
+- 訴求と無関係な機能・特徴を複数並べて汎用的な紹介文になっている場合は「body_ng」
+
+【判定結果の種類】
+- "ok": 全セルが訴求に沿っている
+- "hook_ng": Hookが訴求を反映していない
+- "body_ng": Hookは合っているがBody/CTAが訴求の文脈から外れている（機能羅列型）
+- "all_ng": Hook/Body両方が訴求から外れている
+
+【対象】
+${checkLines}
+
+【出力形式】JSONのみ。説明文禁止。
+{"results": [{"index": 0, "verdict": "ok"}, {"index": 1, "verdict": "body_ng"}, ...]}
+※全スロット分を返すこと`;
+
+  const checkRes = await callGemini(checkPrompt, inputs, { temperature: 0.1, maxOutputTokens: 2048 });
+  if (!checkRes?.results || !Array.isArray(checkRes.results)) return;
+
+  // 3. NGスロットを書き直す
+  const ngSlots = checkRes.results
+    .filter(r => r.verdict !== 'ok')
+    .map(r => ({ ...slots[r.index], verdict: r.verdict }))
+    .filter(s => s?.pattern_key);
+  if (ngSlots.length === 0) return;
+
+  const tasks = ngSlots.map(s => {
+    const pattern = PATTERNS.find(p => p.key === s.pattern_key);
+    if (!pattern) return null;
+    return rewriteSlotToMatchAngle(pattern, s.idx, s.cells, s.assignedAngle, s.verdict, inputs);
+  }).filter(Boolean);
+
+  const results = await Promise.all(tasks.map(t => t.catch(() => null)));
+  for (const r of results) {
+    if (!r) continue;
+    const pr = state.results[r.pattern_key];
+    if (!pr) continue;
+    for (const [key, val] of Object.entries(r.newCells)) {
+      if (!pr[key]) continue;
+      const isHook = key.startsWith('hook');
+      const isCta = key.startsWith('cta');
+      const min = isCta ? 13 : 16;
+      const max = isCta ? 20 : 24;
+      const len = clen(val);
+      if (len >= min && len <= max) pr[key][r.idx] = val;
+    }
+  }
+}
+
+// 権威(halo)パターンの決定論的バリデーション
+// Hookに権威提示構文（「〇〇ほど〇〇している」等）が入っていなければ書き直す
+function hasAuthorityStructure(text) {
+  if (!text) return false;
+  const patterns = [
+    /ほど[^。、]*(してい|する|選|投資|使っ|取り組|認め|当たり前|やっ)/,
+    /共通点/,
+    /上位\s*\d/,
+    /トップ[あ-んア-ヴ一-龥ー]/,
+    /導入\s*\d+\s*(社|企業|店|校|院)/,
+    /\d+\s*(社|企業|店|校|院)\s*(が|の)\s*(導入|採用|選|使|認|推奨)/,
+    /(成果を出す|成果が出る|できる|伸びる|勝[つてる]|稼[ぐげ]|結果を出す)[あ-んア-ヴ一-龥ー]+(ほど|が|の|は)/,
+    /プロが\s*(推奨|選|使|認)/,
+    /業界\s*[一1No](位|番|\.)/,
+    /が選ぶ/,
+    /に選ばれ/,
+    /が認めた/,
+    /の共通点/,
+  ];
+  return patterns.some(re => re.test(text));
+}
+
+// haloの述語が試行系・入門系・無料系になっていないかチェック（論理矛盾検出）
+// 「成果を出す〇〇ほど無料で試す」のような構造は権威と矛盾するため書き直し対象
+function hasTrialContradiction(text) {
+  if (!text) return false;
+  const trialPatterns = [
+    /無料で/,
+    /お試し/,
+    /とりあえず/,
+    /まずは[^。、]{0,8}(試|する|やる|使|始)/,
+    /気軽に/,
+    /簡単に[^。、]{0,8}(試|始|使)/,
+    /ちょっと[^。、]{0,8}(試|使|やっ)/,
+    /(試す|試して|検証する|検証して)(?![いた])/,  // 「試している」「試した」は除外（継続・完了形はOK）
+  ];
+  return trialPatterns.some(re => re.test(text));
+}
+
+async function enforceHaloAuthority(inputs) {
+  const halo = state.results?.halo;
+  if (!halo?.hook_1) return;
+  const pf = state.lpAnalysis?.pattern_fit?.find(x => x.pattern_key === 'halo');
+
+  const targets = [];
+  for (let idx = 0; idx < 2; idx++) {
+    const h = halo.hook_1[idx];
+    if (!h) continue;
+    // 権威構文が無い、または権威構文があっても試行系述語と矛盾している場合は書き直し
+    if (hasAuthorityStructure(h) && !hasTrialContradiction(h)) continue;
+    targets.push(idx);
+  }
+  if (targets.length === 0) return;
+
+  const haloPattern = PATTERNS.find(p => p.key === 'halo');
+  const tasks = targets.map(idx => rewriteHaloHook(haloPattern, idx, pf, inputs));
+  const results = await Promise.all(tasks.map(t => t.catch(() => null)));
+
+  for (const r of results) {
+    if (!r?.newHook) continue;
+    const len = clen(r.newHook);
+    if (len >= 16 && len <= 24 && hasAuthorityStructure(r.newHook)) {
+      halo.hook_1[r.idx] = r.newHook;
+    }
+  }
+}
+
+async function rewriteHaloHook(pattern, idx, pf, inputs) {
+  const assignedAngle = (idx === 0 ? pf?.angle_v1 : pf?.angle_v2) || '';
+  const currentHook = state.results.halo.hook_1[idx];
+
+  const prompt = `権威（ハロー効果）パターンのHookを書き直してください。
+現在のHookは機能説明・連携機能・最新性アピール・作り手スペック等のサービス自慢になっており、権威構文になっていません。
+
+🚨 絶対ルール: 必ず「〇〇ほど、〇〇している」系の権威提示構文で書く。
+
+✅ 必須の構文型（いずれかを必ず使う）:
+  - 「成果を出す〇〇ほど、△△している」
+  - 「できる〇〇ほど、△△を選んでいる」
+  - 「トップ〇〇ほど、△△に投資している」
+  - 「上位〇〇%の〇〇が△△を選ぶ」
+  - 「導入〇〇社の共通点は△△」
+  ※〇〇は優秀・成功・トップ系の主体修飾語が必須（ただの「マーケター」ではなく「成果を出すマーケター」等）
+
+❌ 絶対NG:
+  - 機能説明（「〇〇できる」「〇〇と連携」）
+  - 作り手スペック（「〇〇エンジニアが構築」「〇〇が作った」）
+  - 最新性アピール（「最新の」「最先端の」「業界初の」）
+  - サービス自慢（〇〇が主語ではなく「使う側の権威層」が主語でないとNG）
+  - 🚨**論理矛盾述語**: 「無料で〜」「お試し」「とりあえず」「気軽に」「試す／検証する」等の試行系・入門系の述語（例: 「成果を出す事業会社ほど無料で動画検証する」は成功者なのにタダという論理矛盾で失格）
+    →述語は「投資している／徹底している／量を投じている／継続している／取り組んでいる／厳密にやっている／重視している」等、成功と相関するコミット系動詞を使う
+
+【現在のHook（失敗例・書き直し対象）】「${currentHook}」
+【割当訴求（維持すること）】「${assignedAngle}」
+【LP要約】${(inputs.own_lp_summary || '').slice(0, 2000)}
+
+【制約】
+- 16〜24文字（記号含む）
+- 上記の権威構文必須（「ほど／共通点／選ぶ／トップ／上位／導入〇社」等の語を必ず含める）
+- 「${assignedAngle}」の訴求軸を維持
+- 「。」「．」は使用禁止
+- 助詞「か」で終わる疑問文に「？」を付けない（丁寧語の場合）
+- own_lp_summaryに実在する数値・事実・ターゲット名のみ使用（作り話禁止）
+
+【出力形式】JSONのみ。説明文禁止。
+{"new_hook_1": "書き直したHook"}`;
+
+  const res = await callGemini(prompt, inputs, { temperature: 0.7, maxOutputTokens: 512 });
+  if (!res?.new_hook_1) return null;
+  return { idx, newHook: res.new_hook_1 };
+}
+
+async function rewriteSlotToMatchAngle(pattern, idx, currentCells, assignedAngle, verdict, inputs) {
+  const is40 = inputs.video_length === '40s';
+  const rewriteTarget = verdict === 'hook_ng' ? 'Hookのみ' : verdict === 'body_ng' ? 'Body/CTAのみ（Hookは維持）' : 'Hook/Body/CTA全て';
+
+  const cellLines = Object.entries(currentCells).map(([k,v]) => `- ${k}: 「${v}」`).join('\n');
+
+  const charSpec = is40
+    ? 'hook_1/hook_2/body_a_1/body_a_2/body_b_1/body_b_2: 16〜24字、cta_1/cta_2: 13〜20字'
+    : 'hook_1/body_a_1/body_b_1: 16〜24字、cta_1: 13〜20字';
+
+  const prompt = `あなたは広告コピーライターです。以下のスロットが割り当てられた訴求の文脈に沿っていないため、書き直してください。
+
+【パターン】${pattern.name}（${pattern.desc}）
+【v${idx+1}の割当訴求（★これをシナリオ全体の軸にする）】
+「${assignedAngle}」
+
+【現在のセル内容】
+${cellLines}
+
+【書き直し対象】${rewriteTarget}
+${verdict === 'body_ng' ? `
+【問題】Hookは訴求を反映しているが、Body/CTAが訴求と無関係な機能羅列になっている。
+Body/CTAを「${assignedAngle}」の訴求に沿った解決策・根拠・行動喚起に書き直す。
+- Body_a: Hookの訴求に対する直接的な解決策（この訴求に関連する機能だけを使う）
+- Body_b: その解決策の信頼性を裏づける根拠（この訴求に関連する実績・数値だけ）
+- CTA: この訴求に動機づけられた具体的な行動喚起
+- ❌ 訴求と無関係な機能を並べるのは禁止
+` : ''}
+【LP要約】
+${(inputs.own_lp_summary || '').slice(0, 2000)}
+
+【書き直しルール】
+- 「${assignedAngle}」の訴求がシナリオ全体を貫くようにする
+- LP要約からこの訴求に関連する事実・数値・キーワードだけを選んで使う
+- 訴求と無関係な機能・特徴は書かない
+- パターン心理（${pattern.desc}）を維持
+- 文字数: ${charSpec}
+- 「。」「．」禁止、各セル独立完結文
+- LP要約に書かれていない機能・連携を創作しない
+- ${verdict === 'body_ng' ? 'Hookはそのまま維持し、変更しない' : 'Hook単独でトピック・メッセージが分かること'}
+
+【出力形式】JSONのみ。説明文禁止。書き直したセルだけ含める。
+${verdict === 'body_ng'
+  ? (is40 ? '{"body_a_1":"...","body_a_2":"...","body_b_1":"...","body_b_2":"...","cta_1":"...","cta_2":"..."}' : '{"body_a_1":"...","body_b_1":"...","cta_1":"..."}')
+  : (is40 ? '{"hook_1":"...","hook_2":"...","body_a_1":"...","body_a_2":"...","body_b_1":"...","body_b_2":"...","cta_1":"...","cta_2":"..."}' : '{"hook_1":"...","body_a_1":"...","body_b_1":"...","cta_1":"..."}')}`;
+
+  const res = await callGemini(prompt, inputs, { temperature: 0.7, maxOutputTokens: 2048 });
+  if (!res || typeof res !== 'object') return null;
+  return { pattern_key: pattern.key, idx, newCells: res };
+}
+
+// スロット間の被り検証（最大2回クラスタ上限 + 同一パターン内v1/v2被り禁止）
+// enforceAngleAlignmentは「各Hookが割当訴求に沿っているか」のみを見るため、
+// スロット間のクラスタ集中／同一パターン内被りは本関数が別途検証する
+async function enforceHookSimilarity(inputs) {
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const slots = [];
+    for (const p of PATTERNS) {
+      const r = state.results[p.key];
+      if (!r) continue;
+      for (let i = 0; i < 2; i++) {
+        const text = r.hook_1?.[i] || '';
+        if (!text) continue;
+        slots.push({ pattern_key: p.key, pattern_name: p.name, idx: i, text });
+      }
+    }
+    if (slots.length < 3) return;
+
+    const mapping = await classifySlotsByMeaning(inputs, slots, 'Hook');
+    if (!mapping) return;
+
+    const clusterToSlots = {};
+    for (let i = 0; i < slots.length; i++) {
+      const m = mapping[i];
+      if (!m) continue;
+      slots[i].cluster_id = m.cluster_id;
+      slots[i].cluster_label = m.cluster_label;
+      (clusterToSlots[m.cluster_id] = clusterToSlots[m.cluster_id] || []).push(slots[i]);
+    }
+
+    const samePatternViolations = new Set();
+    const patternSlots = {};
+    for (const s of slots) (patternSlots[s.pattern_key] = patternSlots[s.pattern_key] || []).push(s);
+    for (const pk of Object.keys(patternSlots)) {
+      const arr = patternSlots[pk];
+      if (arr.length < 2) continue;
+      if (arr[0].cluster_id && arr[0].cluster_id === arr[1].cluster_id) {
+        samePatternViolations.add(`${pk}:1`);
+      }
+    }
+
+    const globalViolations = new Set();
+    const forbiddenClusters = {};
+    for (const cid of Object.keys(clusterToSlots)) {
+      const arr = clusterToSlots[cid];
+      if (arr.length < 3) continue;
+      let kept = 0;
+      const sorted = arr.slice().sort((a, b) => {
+        const aViol = samePatternViolations.has(`${a.pattern_key}:${a.idx}`) ? 1 : 0;
+        const bViol = samePatternViolations.has(`${b.pattern_key}:${b.idx}`) ? 1 : 0;
+        return aViol - bViol;
+      });
+      for (const s of sorted) {
+        if (kept < 2 && !samePatternViolations.has(`${s.pattern_key}:${s.idx}`)) { kept++; continue; }
+        const k = `${s.pattern_key}:${s.idx}`;
+        globalViolations.add(k);
+        forbiddenClusters[k] = forbiddenClusters[k] || [];
+        if (!forbiddenClusters[k].some(x => x.cluster_id === s.cluster_id)) {
+          forbiddenClusters[k].push({ cluster_id: s.cluster_id, label: s.cluster_label });
+        }
+      }
+    }
+    for (const k of samePatternViolations) {
+      const [pk] = k.split(':');
+      const v2 = patternSlots[pk][1];
+      forbiddenClusters[k] = forbiddenClusters[k] || [];
+      if (!forbiddenClusters[k].some(x => x.cluster_id === v2.cluster_id)) {
+        forbiddenClusters[k].push({ cluster_id: v2.cluster_id, label: v2.cluster_label });
+      }
+    }
+
+    const allViolations = new Set([...samePatternViolations, ...globalViolations]);
+    if (allViolations.size === 0) return; // 全ルール満たしてる
+
+    // 生き残る(keep)スロットのクラスタ = 使用済みファセット
+    const keptSlots = slots.filter(x => !allViolations.has(`${x.pattern_key}:${x.idx}`));
+    const usedClusterLabels = [...new Set(keptSlots.map(x => x.cluster_label).filter(Boolean))];
+
+    // LPのmessaging_anglesから、使用済みでない候補ファセットを抽出
+    const allAngles = (state.lpAnalysis?.messaging_angles || []).map(m => m.angle || '').filter(Boolean);
+    const unusedAngles = allAngles.filter(a => !usedClusterLabels.some(l => l.includes(a.slice(0,4)) || a.includes(l.slice(0,4))));
+
+    // 違反スロットそれぞれに、未使用ファセットを1つずつ確定割り当て（重複しないように）
+    const violationList = [...allViolations];
+    const assignments = {};
+    const angleQueue = unusedAngles.slice();
+    for (const k of violationList) {
+      assignments[k] = angleQueue.shift() || null; // 尽きたら null（自由選択）
+    }
+
+    // 書き直し（並列・担当ファセット付き）
+    const tasks = [];
+    for (const k of violationList) {
+      const [pk, idxStr] = k.split(':');
+      const idx = parseInt(idxStr, 10);
+      const pattern = PATTERNS.find(x => x.key === pk);
+      const s = slots.find(x => x.pattern_key === pk && x.idx === idx);
+      if (!pattern || !s) continue;
+      const forbidden = forbiddenClusters[k] || [];
+      const assignedFacet = assignments[k];
+      tasks.push(rewriteHookAvoidingClusters(pattern, idx, s.text, forbidden, usedClusterLabels, assignedFacet, inputs));
+    }
+    const results = await Promise.all(tasks.map(t => t.catch(() => null)));
+
+    let changed = false;
+    for (const r of results) {
+      if (!r) continue;
+      const pr = state.results[r.pattern_key];
+      if (!pr || !Array.isArray(pr.hook_1)) continue;
+      const len = clen(r.new_hook);
+      if (len < 16 || len > 24) continue;
+      pr.hook_1[r.idx] = r.new_hook;
+      changed = true;
+    }
+    if (!changed) return; // 進展なし
+  }
+}
+
+async function rewriteHookAvoidingClusters(pattern, idx, currentText, forbiddenClusters, usedLabels, assignedFacet, inputs) {
+  // LP分析の割当訴求を取得
+  const pf = state.lpAnalysis?.pattern_fit?.find(x => x.pattern_key === pattern.key);
+  const lpAssignedAngle = pf ? (idx === 0 ? pf.angle_v1 : pf.angle_v2) : null;
+
+  const assignmentBlock = lpAssignedAngle ? `
+【★LP分析で割り当てられた訴求（最優先）】
+このスロット（${pattern.name} v${idx+1}）には「${lpAssignedAngle}」が割り当てられている。
+→ この訴求をメインに据えたHookを書くこと（禁止クラスタと衝突しない限り）
+→ 禁止クラスタと衝突する場合のみ、下記の指定訴求を代わりに使う
+${assignedFacet ? `
+【★代替訴求（LP割当が禁止クラスタと衝突する場合のみ使用）】
+「${assignedFacet}」 をメインにした Hook を書く。` : ''}
+` : (assignedFacet ? `
+【★このスロットで必ず使う訴求（指定）】
+「${assignedFacet}」 をメインにした Hook を書く。LP要約内にあるこの訴求に関連する具体事実・数値・表現を優先的に拾う。
+この訴求以外の角度を中心に据えるのは禁止。
+` : `
+【指定訴求】
+なし（ただし禁止クラスタ・他スロットと被らない別の訴求を自力で選ぶ）
+`);
+
+  const prompt = `あなたは広告コピーライターです。以下のHookを、**指定された訴求クラスタ（意味の塊）を一切使わず**、**指定された訴求**をメインにして書き直してください。
+
+【パターン】${pattern.name}（${pattern.desc}）
+【v${idx+1}の現在のHook】"${currentText}"
+
+【絶対に使ってはいけない訴求クラスタ（意味の塊・表現違いでもNG）】
+${forbiddenClusters.map(c => `- 「${c.label}」 系の訴求は禁止（表現・固有名詞・言い換えを変えても中身が同じならNG）`).join('\n')}
+
+【他スロットが既に使っている訴求（被らせない）】
+${usedLabels.length ? usedLabels.map(l => `- ${l}`).join('\n') : '（なし）'}
+${assignmentBlock}
+【LP要約】
+${(inputs.own_lp_summary || '').slice(0, 2000)}
+
+【書き直しルール（絶対遵守）】
+- 禁止クラスタの意味内容を一切含めない（言い換え・類似語・比喩もNG）
+- 他スロットの訴求と被らない（読者が「さっきのと同じことを言っている」と感じたら失敗）
+- 指定訴求がある場合はそれをメインに据える
+- LPに実在する機能・価値・数値を使う（創作禁止）
+- 文字数16〜24字、「。」「．」禁止、独立完結文
+- Hook単独でトピックが分かること（抽象名詞単独禁止・「運用」「質」「成果」等を目的語なしで使うのは禁止）
+- パターン心理（${pattern.desc}）を維持
+
+【出力形式】JSONのみ。説明文禁止。
+{"new_hook": "書き直した文", "used_facet": "今回メインに据えた訴求面"}`;
+
+  const res = await callGemini(prompt, inputs, { temperature: 0.8, maxOutputTokens: 1024 });
+  if (!res?.new_hook) return null;
+  return { pattern_key: pattern.key, idx, new_hook: res.new_hook };
+}
+
+// LP分析の pattern_fit 段階で訴求内容の意味類似度で重複を決定論的に強制
+// ルール: 全10スロット中同じ訴求内容は最大2回 / 同一パターン内(v1 & v2)で被り禁止
+async function enforcePatternFitAnchorLimit(inputs) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const analysis = state.lpAnalysis;
+    if (!analysis?.pattern_fit?.length) return;
+
+    // 10スロット列挙（angle のみで判定。hook_seed は付随情報）
+    const slots = [];
+    for (const pf of analysis.pattern_fit) {
+      for (let i = 0; i < 2; i++) {
+        const text = i === 0 ? (pf.angle_v1 || '') : (pf.angle_v2 || '');
+        if (!text) continue;
+        slots.push({ pattern_key: pf.pattern_key, idx: i, text });
+      }
+    }
+    if (slots.length < 3) return;
+
+    const mapping = await classifySlotsByMeaning(inputs, slots, '訴求切り口');
+    if (!mapping) return;
+
+    const clusterToSlots = {};
+    for (let i = 0; i < slots.length; i++) {
+      const m = mapping[i];
+      if (!m) continue;
+      slots[i].cluster_id = m.cluster_id;
+      slots[i].cluster_label = m.cluster_label;
+      (clusterToSlots[m.cluster_id] = clusterToSlots[m.cluster_id] || []).push(slots[i]);
+    }
+
+    const samePatternViolations = new Set();
+    const patternSlots = {};
+    for (const s of slots) (patternSlots[s.pattern_key] = patternSlots[s.pattern_key] || []).push(s);
+    for (const pk of Object.keys(patternSlots)) {
+      const arr = patternSlots[pk];
+      if (arr.length < 2) continue;
+      if (arr[0].cluster_id && arr[0].cluster_id === arr[1].cluster_id) {
+        samePatternViolations.add(`${pk}:1`);
+      }
+    }
+
+    const globalViolations = new Set();
+    const forbiddenClusters = {};
+    for (const cid of Object.keys(clusterToSlots)) {
+      const arr = clusterToSlots[cid];
+      if (arr.length < 3) continue;
+      let kept = 0;
+      const sorted = arr.slice().sort((a, b) => {
+        const aViol = samePatternViolations.has(`${a.pattern_key}:${a.idx}`) ? 1 : 0;
+        const bViol = samePatternViolations.has(`${b.pattern_key}:${b.idx}`) ? 1 : 0;
+        return aViol - bViol;
+      });
+      for (const s of sorted) {
+        if (kept < 2 && !samePatternViolations.has(`${s.pattern_key}:${s.idx}`)) { kept++; continue; }
+        const k = `${s.pattern_key}:${s.idx}`;
+        globalViolations.add(k);
+        forbiddenClusters[k] = forbiddenClusters[k] || [];
+        if (!forbiddenClusters[k].some(x => x.cluster_id === s.cluster_id)) {
+          forbiddenClusters[k].push({ cluster_id: s.cluster_id, label: s.cluster_label });
+        }
+      }
+    }
+    for (const k of samePatternViolations) {
+      const [pk] = k.split(':');
+      const v2 = patternSlots[pk][1];
+      forbiddenClusters[k] = forbiddenClusters[k] || [];
+      if (!forbiddenClusters[k].some(x => x.cluster_id === v2.cluster_id)) {
+        forbiddenClusters[k].push({ cluster_id: v2.cluster_id, label: v2.cluster_label });
+      }
+    }
+
+    const allViolations = new Set([...samePatternViolations, ...globalViolations]);
+    if (allViolations.size === 0) return;
+
+    const tasks = [];
+    for (const k of allViolations) {
+      const [pk, idxStr] = k.split(':');
+      const idx = parseInt(idxStr, 10);
+      const pf = analysis.pattern_fit.find(x => x.pattern_key === pk);
+      if (!pf) continue;
+      const forbidden = forbiddenClusters[k] || [];
+      const usedLabels = slots.filter(x => !allViolations.has(`${x.pattern_key}:${x.idx}`)).map(x => x.cluster_label).filter(Boolean);
+      tasks.push(rewritePatternFitAvoidingClusters(pf, idx, forbidden, usedLabels, analysis, inputs));
+    }
+    const results = await Promise.all(tasks.map(t => t.catch(() => null)));
+
+    let changed = false;
+    for (const r of results) {
+      if (!r) continue;
+      const pf = state.lpAnalysis.pattern_fit.find(x => x.pattern_key === r.pattern_key);
+      if (!pf) continue;
+      const ak = r.idx === 0 ? 'angle_v1' : 'angle_v2';
+      const sk = r.idx === 0 ? 'hook_seed_v1' : 'hook_seed_v2';
+      pf[ak] = r.new_angle;
+      pf[sk] = r.new_hook_seed;
+      changed = true;
+    }
+    if (!changed) break; // rewriteが全て空振りならdeterministic fallbackへ
+  }
+  // LLM rewriteループ終了後、まだ違反が残っている場合はmessaging_anglesから未使用軸を強制割当
+  await forceReassignUnusedAngles(inputs);
+}
+
+// Deterministic fallback: LLM rewriteで解消しきれなかった違反を、
+// messaging_anglesプールから未使用のangleを拾って強制的に差し替える
+async function forceReassignUnusedAngles(inputs) {
+  const analysis = state.lpAnalysis;
+  if (!analysis?.pattern_fit?.length) return;
+  const available = (analysis.messaging_angles || []).filter(m => m?.angle);
+  if (available.length < 2) return;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const slots = [];
+    for (const pf of analysis.pattern_fit) {
+      for (let i = 0; i < 2; i++) {
+        const text = i === 0 ? (pf.angle_v1 || '') : (pf.angle_v2 || '');
+        if (!text) continue;
+        slots.push({ pattern_key: pf.pattern_key, idx: i, text });
+      }
+    }
+    if (slots.length < 3) return;
+
+    const mapping = await classifySlotsByMeaning(inputs, slots, '訴求切り口');
+    if (!mapping) return;
+
+    const clusterToSlots = {};
+    const slotCluster = {};
+    for (let i = 0; i < slots.length; i++) {
+      const m = mapping[i];
+      if (!m) continue;
+      slots[i].cluster_id = m.cluster_id;
+      slots[i].cluster_label = m.cluster_label;
+      slotCluster[`${slots[i].pattern_key}:${slots[i].idx}`] = m.cluster_id;
+      (clusterToSlots[m.cluster_id] = clusterToSlots[m.cluster_id] || []).push(slots[i]);
+    }
+
+    // 違反特定: 同一パターン内v1/v2被り + 同一クラスタ3個以上
+    const violations = [];
+    const patternSlots = {};
+    for (const s of slots) (patternSlots[s.pattern_key] = patternSlots[s.pattern_key] || []).push(s);
+    for (const pk of Object.keys(patternSlots)) {
+      const arr = patternSlots[pk];
+      if (arr.length === 2 && arr[0].cluster_id && arr[0].cluster_id === arr[1].cluster_id) {
+        violations.push({ pattern_key: pk, idx: 1 });
+      }
+    }
+    for (const cid of Object.keys(clusterToSlots)) {
+      const arr = clusterToSlots[cid];
+      if (arr.length < 3) continue;
+      const sortedArr = arr.slice(2); // 最初の2個は許容、3個目以降を違反
+      for (const s of sortedArr) {
+        if (!violations.some(v => v.pattern_key === s.pattern_key && v.idx === s.idx)) {
+          violations.push({ pattern_key: s.pattern_key, idx: s.idx });
+        }
+      }
+    }
+    if (violations.length === 0) return;
+
+    // 使用中クラスタラベル集合（被りを避けるため）
+    const usedLabels = new Set(slots.map(s => (s.cluster_label || '').trim()).filter(Boolean));
+
+    // 未使用のmessaging_anglesを割り当て（ラウンドロビン）
+    const unusedAngles = available.filter(m => {
+      const label = (m.angle || '').trim();
+      if (!label) return false;
+      for (const u of usedLabels) {
+        if (!u) continue;
+        if (label.includes(u) || u.includes(label)) return false;
+      }
+      return true;
+    });
+
+    // 未使用がゼロなら、全messaging_anglesから違反スロット数ぶん拾って強制ローテート
+    const pool = unusedAngles.length > 0 ? unusedAngles : available.slice();
+    if (pool.length === 0) return;
+
+    const tasks = [];
+    for (let i = 0; i < violations.length; i++) {
+      const v = violations[i];
+      const pf = analysis.pattern_fit.find(x => x.pattern_key === v.pattern_key);
+      if (!pf) continue;
+      const target = pool[i % pool.length];
+      tasks.push(rewritePatternFitWithSpecificAngle(pf, v.idx, target, analysis, inputs));
+    }
+    const results = await Promise.all(tasks.map(t => t.catch(() => null)));
+
+    let changed = false;
+    for (const r of results) {
+      if (!r) continue;
+      const pf = state.lpAnalysis.pattern_fit.find(x => x.pattern_key === r.pattern_key);
+      if (!pf) continue;
+      const ak = r.idx === 0 ? 'angle_v1' : 'angle_v2';
+      const sk = r.idx === 0 ? 'hook_seed_v1' : 'hook_seed_v2';
+      pf[ak] = r.new_angle;
+      pf[sk] = r.new_hook_seed;
+      changed = true;
+    }
+    if (!changed) return;
+  }
+}
+
+// 特定のmessaging_angleを使って、指定スロットの訴求切り口を書き直す
+async function rewritePatternFitWithSpecificAngle(pf, idx, targetAngle, analysis, inputs) {
+  const PATTERN_DESC = {
+    empathy: '共感（痛み・葛藤の代弁）',
+    paradigm: '意外性（常識を覆す）',
+    zeigarnik: '未完了（謎・続きが気になる）',
+    loss: '危機感（損失回避）',
+    halo: '権威（実績・信頼）'
+  };
+  const currentAngle = idx === 0 ? pf.angle_v1 : pf.angle_v2;
+  const otherSlot = idx === 0 ? (pf.angle_v2 || '') : (pf.angle_v1 || '');
+
+  const prompt = `あなたはLP分析ディレクターです。指定された訴求軸を使って、このスロットの訴求切り口を書き直してください。
+
+【対象】パターン=${pf.pattern_key}(${PATTERN_DESC[pf.pattern_key]||''}) の v${idx+1}
+【現在の切り口（違反中・書き換える）】"${currentAngle || ''}"
+【同一パターンのもう片方（絶対に被らせない）】"${otherSlot}"
+
+【必ず使う訴求軸】
+- 軸: 「${targetAngle.angle || ''}」
+- 根拠: ${targetAngle.rationale || ''}
+- LP原文引用: ${targetAngle.evidence || ''}
+
+【書き直しルール】
+- 上記の訴求軸の中核メッセージを必ず反映する（別の面に逃げない）
+- もう片方のv${idx===0?2:1}の訴求と中身が被らないこと
+- パターン心理（${PATTERN_DESC[pf.pattern_key]||''}）を維持
+- LPに実在する内容のみ使用（創作禁止）
+
+【LP要約】
+${(analysis.summary || '').slice(0, 1500)}
+
+【出力形式】JSONのみ。説明文禁止。
+{"new_angle": "書き直した訴求切り口（具体的な訴求内容）", "new_hook_seed": "Hookで使える具体キーワード／フレーズの種"}`;
+
+  const res = await callGemini(prompt, inputs, { temperature: 0.5, maxOutputTokens: 1024 });
+  if (!res?.new_angle) return null;
+  return { pattern_key: pf.pattern_key, idx, new_angle: res.new_angle, new_hook_seed: res.new_hook_seed || '' };
+}
+
+async function rewritePatternFitAvoidingClusters(pf, idx, forbiddenClusters, usedLabels, analysis, inputs) {
+  const PATTERN_DESC = {
+    empathy: '共感（痛み・葛藤の代弁）',
+    paradigm: '意外性（常識を覆す）',
+    zeigarnik: '未完了（謎・続きが気になる）',
+    loss: '危機感（損失回避）',
+    halo: '権威（実績・信頼）'
+  };
+  const currentAngle = idx === 0 ? pf.angle_v1 : pf.angle_v2;
+
+  const prompt = `あなたはLP分析ディレクターです。以下の訴求切り口を、**指定された訴求クラスタ（意味の塊）を一切使わず**別の側面で書き直してください。
+
+【対象】パターン=${pf.pattern_key}(${PATTERN_DESC[pf.pattern_key]||''}) の v${idx+1}
+【現在の切り口】"${currentAngle || ''}"
+
+【絶対に使ってはいけない訴求クラスタ】
+${forbiddenClusters.map(c => `- 「${c.label}」 系（表現や固有名詞を変えても中身が同じならNG）`).join('\n')}
+
+【理由】これらの訴求クラスタは他スロットで既に最大許容数(2個)を使い切っている。全10スロット中同じ訴求内容は最大2回まで・同一パターン内v1/v2で重複禁止。
+
+【既に他スロットで使われている訴求面（被らないように）】
+${usedLabels.length ? usedLabels.map(l => `- ${l}`).join('\n') : '（なし）'}
+
+【LP要約】
+${(analysis.summary || '').slice(0, 2000)}
+
+【LPの訴求軸一覧】
+${JSON.stringify(analysis.messaging_angles || [], null, 2)}
+
+【書き直しルール】
+- 禁止クラスタの意味内容を一切含めない（表現を変えても中身が同じならNG）
+- LPに実在する別の側面（痛み/時短/質/成果/実績/独自性/価格/使いやすさ/信頼/新前提など）を拾う
+- パターン心理（${PATTERN_DESC[pf.pattern_key]||''}）を維持
+
+【出力形式】JSONのみ。説明文禁止。
+{"new_angle": "書き直した訴求切り口", "new_hook_seed": "Hookで使える具体キーワード／フレーズの種", "used_facet": "今回使った訴求面"}`;
+
+  const res = await callGemini(prompt, inputs, { temperature: 0.6, maxOutputTokens: 1024 });
+  if (!res?.new_angle) return null;
+  return { pattern_key: pf.pattern_key, idx, new_angle: res.new_angle, new_hook_seed: res.new_hook_seed || '' };
+}
+
+async function rewritePatternFitAvoidingWords(pf, idx, forbiddenWords, analysis, inputs) {
+  const PATTERN_DESC = {
+    empathy: '共感（痛み・葛藤の代弁）',
+    paradigm: '意外性（常識を覆す）',
+    zeigarnik: '未完了（謎・続きが気になる）',
+    loss: '危機感（損失回避）',
+    halo: '権威（実績・信頼）'
+  };
+  const otherAngles = analysis.pattern_fit
+    .filter(x => x.pattern_key !== pf.pattern_key || x.angle_v1 !== pf.angle_v1)
+    .map(x => `- ${x.pattern_key}: v1「${x.angle_v1||''}」/ v2「${x.angle_v2||''}」`).join('\n');
+
+  const currentAngle = idx === 0 ? pf.angle_v1 : pf.angle_v2;
+  const currentSeed = idx === 0 ? pf.hook_seed_v1 : pf.hook_seed_v2;
+
+  const prompt = `あなたはLP分析ディレクターです。以下の訴求切り口を、**禁止語を一切使わず**別のアンカー語・別の側面で書き直してください。
+
+【対象】パターン=${pf.pattern_key}(${PATTERN_DESC[pf.pattern_key]||''}) の v${idx+1}
+【現在の切り口】"${currentAngle || ''}"
+【現在のHook種】"${currentSeed || ''}"
+
+【絶対に使ってはいけない語（大文字小文字問わず・部分一致NG）】
+${forbiddenWords.map(w => `- ${w}`).join('\n')}
+
+【理由】これらの語は他スロットで既に最大許容数を使い切っている。全10スロット中同じアンカー語は最大2回まで・同一パターン内v1/v2で重複禁止というルールを満たすため、このスロットでは別のアンカー語・別の対象物・別の側面を使う必要がある。
+
+【他スロットの切り口（参考・重複回避）】
+${otherAngles}
+
+【LP要約】
+${(analysis.summary || '').slice(0, 2000)}
+
+【LPのサービススコープ】
+${JSON.stringify(analysis.service?.scope_boundaries || {}, null, 2)}
+
+【LPの訴求軸一覧】
+${JSON.stringify(analysis.messaging_angles || [], null, 2)}
+
+【書き直しルール】
+- 禁止語を絶対に使わない（類似語・部分一致もNG）
+- LPに実在する別のアンカー語・別の機能・別の数値・別の側面を拾って使う
+- このパターンの心理（${PATTERN_DESC[pf.pattern_key]||''}）を維持
+- 他スロットの切り口と被らない
+
+【出力形式】JSONのみ。説明文禁止。
+{"new_angle": "書き直した訴求切り口", "new_hook_seed": "Hookで使える具体キーワード／フレーズの種", "used_anchor": "今回使ったアンカー語"}`;
+
+  const res = await callGemini(prompt, inputs, { temperature: 0.6, maxOutputTokens: 1024 });
+  if (!res?.new_angle) return null;
+  return {
+    pattern_key: pf.pattern_key,
+    idx,
+    new_angle: res.new_angle,
+    new_hook_seed: res.new_hook_seed || '',
+    forbidden: forbiddenWords.map(w => w.toUpperCase())
+  };
+}
+
+async function rewriteHookAvoidingWords(pattern, idx, currentText, forbiddenWords, inputs) {
+  const prompt = `あなたは広告コピーライターです。以下のHookを、**禁止語を一切使わず**同じパターン心理・同じ訴求意図のまま書き直してください。
+
+【パターン】${pattern.name}
+【v${idx+1}の現在のHook】"${currentText}"
+【絶対に使ってはいけない語（大文字小文字問わず・部分一致でもNG）】
+${forbiddenWords.map(w => `- ${w}`).join('\n')}
+
+【理由】これらの語は既に他スロットで使用済み。全10スロット中同じアンカー語は最大2回まで・同一パターン内で重複禁止というルールを満たすため、このスロットでは別のアンカー語を使う必要がある。
+
+【書き直しルール】
+- 禁止語を絶対に使わない（類似語・部分一致もNG）
+- LP要約から別のアンカー語・別の対象物・別の側面を拾って使う
+- 文字数は16〜24字、「。」「．」禁止、独立完結文
+- パターン心理（${pattern.desc}）を維持
+- Hook単独でトピックが分かること（抽象名詞単独禁止）
+
+【LP要約】
+${(inputs.own_lp_summary || '').slice(0, 2000)}
+
+【出力形式】JSONのみ。説明文禁止。
+{"new_hook": "書き直した文", "used_anchor": "今回使ったアンカー語"}`;
+
+  const res = await callGemini(prompt, inputs, { temperature: 0.8, maxOutputTokens: 1024 });
+  if (!res?.new_hook) return null;
+  return { pattern_key: pattern.key, idx, new_hook: res.new_hook, forbidden: forbiddenWords.map(w => w.toUpperCase()) };
+}
+
+// --- 違反セル自動修正プロンプト（編集可能） ---
+function buildAutoFixPrompt(pattern, result, inputs) {
+  const is40 = inputs.video_length === '40s';
+  const specs = is40
+    ? [['hook_1',16,24],['hook_2',16,24],['body_a_1',16,24],['body_a_2',16,24],['body_b_1',16,24],['body_b_2',16,24],['cta_1',13,20],['cta_2',13,20]]
+    : [['hook_1',16,24],['body_a_1',16,24],['body_b_1',16,24],['cta_1',13,20]];
+
+  const charViolations = [];
+  for (const [key, min, max] of specs) {
+    const arr = result[key] || [];
+    for (let i = 0; i < 2; i++) {
+      const v = arr[i] || '';
+      const len = clen(v);
+      if (!v || len < min || len > max) charViolations.push({ key, idx: i, text: v, len, min, max });
+    }
+  }
+
+  const specLines = specs.map(s => `- ${s[0]}: ${s[1]}〜${s[2]}文字`).join('\n');
+  const violationNote = charViolations.length
+    ? `\n【既に検出した文字数違反】\n${charViolations.map(v => `- ${v.key}[${v.idx}] "${v.text}" (${v.len}字) → ${v.min}〜${v.max}字に収める`).join('\n')}`
+    : '';
+
+  const scope = state.lpAnalysis?.service?.scope_boundaries;
+  const scopeBlock = scope ? `
+【このサービスの事業スコープ（事実チェック用の基準）】
+✅ できること: ${(scope.in_scope || []).join(' / ') || '（未設定）'}
+❌ 対応しない／書いてない: ${(scope.out_of_scope || []).join(' / ') || '（未設定）'}
+⚠️ 誤解しやすい点: ${(scope.common_misreadings || []).join(' / ') || '（未設定）'}
+` : '';
+
+  return `あなたは広告コピーの校正者です。以下の生成結果を4つの観点でチェックし、違反セルだけを書き直してください。
+
+【チェック観点】
+(A) 文字数違反（各セルの規定レンジ内に収まっているか）
+${specLines}
+(B) セル独立完結違反（各セルが単独で意味の通る完結文になっているか）
+  - hook_1 と hook_2、body_a_1 と body_a_2、body_b_1 と body_b_2、cta_1 と cta_2 が2セル跨ぎで1文になっていないか
+  - 助詞や動詞の途中で切れていないか（「〜を」「〜して」「〜で」等で終わる）
+  - 「〇〇が」「〇〇は」「実は〇〇が」で終わるセルは、主語だけ提示して述語が次セルにある違反パターン
+  - 違反例: hook_1「未入稿で安心？実はGoogleが」→ Googleが何をするか分からず途切れている
+  - 単独で読んで意味が成立するか
+(C) 事業スコープ違反・事実違反（LP要約に書かれていない機能・連携・提供範囲を創作していないか）
+  - 「〇〇と連携」「〇〇を分析」「〇〇まで提案」「〇〇に対応」等は、LP原文／own_lp_summary に記載がある場合のみ許可
+  - 対象外の範囲（他社ツール製の動画、連携していない外部サービス等）を機能として書いていたら違反
+  - out_of_scope / common_misreadings に該当する記述は即違反
+(D) Hookのトピック不明瞭違反（hook_1 / hook_2 単独で「何の話か」が読み取れないもの）
+  - 「運用」「成果」「改善」「自動化」「質」「効果」等の抽象名詞を単独で使っていないか（必ず「〇〇の運用」等、目的語を明示）
+  - 読者が初見で「何の業界／何の対象物／何の話題か」を推測できるアンカー語（own_lp_summaryから拾える具体名詞）が含まれているか
+  - Hook単独で読んでトピックが分からなければ違反として書き直す（領域・対象物を明示した形で）
+(E) Hookのメッセージ不明瞭違反（hook_1 / hook_2 を読んで「何を伝えたいのか」が一言で説明できないもの）
+  - トピックは分かるが、「だから何？」「何が問題なの？」と感じさせるHookは違反
+  - 「〇〇にまだ△△していませんか」型で、△△しないことの問題が暗示されていないものは違反
+  - 因果関係が飛躍している、文脈なしでは意図が伝わらない構文は違反
+  - 違反例: 「動画広告の検証にまだ何週間も待っていませんか」「成果を出すマーケターは無料５本の動画制作から開始」
+  - Hookは具体的な問題・リスク・意外な事実を読者が一読で理解できる形に書き直す
+  <!-- BEGIN: 因果明示チェック追加（ロールバック可） -->
+  - (E-2) 条件節と帰結の因果が暗黙で読者に推論を強いるHookも違反。「〇〇だけで／〇〇のまま／〇〇なのに／〇〇しながら」等の条件節＋帰結構文で、その間の因果が業界常識に依存するものは書き直す
+  - 違反例: 「数枚の画像と文字だけで動画広告を諦めていませんか」（素材不足→動画不可の暗黙前提に依存）／「限られた素材のまま広告配信していませんか」（何が問題か文面に書かれていない）
+  - 書き直し方: 条件→帰結の因果を具体的な時間・本数・金額で可視化する、または業界経験なしで論理が追える形に言い換える
+  <!-- END: 因果明示チェック追加 -->
+(F) 同一バリエーション内セル間重複違反（同じインデックス[i]内でhook/body_a/body_b/ctaが同じ主張・同じファクトを繰り返していないか）
+  - 同じ数値や同じ特徴がHookとBodyの両方に主役として登場していたら違反
+  - 表現を変えただけの実質重複（「5分で20本生成」をHookとBodyで言い換えているだけ等）も違反
+  - 違反セルは、そのセルの役割（Hook=問題提起、Body_a=解決策、Body_b=根拠、CTA=行動喚起）に合った別の情報に書き直す
+
+${scopeBlock}
+【LP要約（事実の基準）】
+${(inputs.own_lp_summary || '').slice(0, 3000)}
+
+【LP分析で割り当てられた訴求（書き直し時も必ず遵守）】
+${(() => {
+  const pf = state.lpAnalysis?.pattern_fit?.find(x => x.pattern_key === pattern.key);
+  if (!pf) return '(割当なし)';
+  return `- v1(配列[0])の訴求: 「${pf.angle_v1 || ''}」 → この訴求をメインに維持すること
+- v2(配列[1])の訴求: 「${pf.angle_v2 || ''}」 → この訴求をメインに維持すること
+❗書き直し後も、v1は「${pf.angle_v1||''}」の訴求、v2は「${pf.angle_v2||''}」の訴求をメインに据えなければ失敗`;
+})()}
+
+【書き直しルール】
+- 違反していないセルは絶対に変更しない（原文そのまま返す）
+- 違反セルは、元の訴求・意図・パターン（${pattern.name}）を保ったまま、事実に忠実・独立完結文で文字数内に書き直す
+- 「。」「．」は使用禁止。漢数字（五、三等）禁止
+- 2セル跨ぎの1文になっていた場合は、各セルが独立した文として機能するように書き分ける
+- 事実違反セルは、LP要約に実在する機能・価値・成果に置き換える
+- ❗書き直し後も上記の「割り当てられた訴求」を維持すること。訴求を変えてはいけない
+
+【現在の生成結果】
+${JSON.stringify(result, null, 2)}
+${violationNote}
+
+【出力形式】元のJSON構造を全て保ったまま、違反セルだけ書き直した完全版JSONを返す。説明文・コードブロック・前置き一切禁止。`;
+}
+
+// 生成後に違反セルだけを無音で直すパス（ユーザーには見せない）
+async function autoFixCells(pattern, result, inputs) {
+  const is40 = inputs.video_length === '40s';
+  const specs = is40
+    ? [['hook_1',16,24],['hook_2',16,24],['body_a_1',16,24],['body_a_2',16,24],['body_b_1',16,24],['body_b_2',16,24],['cta_1',13,20],['cta_2',13,20]]
+    : [['hook_1',16,24],['body_a_1',16,24],['body_b_1',16,24],['cta_1',13,20]];
+
+  const fixPrompt = getEffectivePrompt('autofix', buildAutoFixPrompt(pattern, result, inputs));
+  const fixed = await callGemini(fixPrompt, inputs);
+  if (!fixed || typeof fixed !== 'object') return null;
+
+  // セル独立完結の違反はローカル判定できないので、LLMが「原文と違う値を返した＝違反と判断した」セルのみ、
+  // かつ文字数レンジに収まっている場合だけ採用する。それ以外は原文維持。
+  const merged = JSON.parse(JSON.stringify(result));
+  for (const [key, min, max] of specs) {
+    if (!Array.isArray(fixed[key])) continue;
+    for (let i = 0; i < 2; i++) {
+      const orig = result[key]?.[i] || '';
+      const fix = fixed[key][i] || '';
+      if (!fix || fix === orig) continue; // LLM が変更しなかったセルは維持
+      const fixLen = clen(fix);
+      if (fixLen >= min && fixLen <= max) merged[key][i] = fix;
+    }
+  }
+  return merged;
+}
+
+// --- LP分析 pattern_fit 再配分プロンプト（編集可能） ---
+function buildRebalancePrompt(inputs, analysis, dominantWords) {
+  return `あなたはLPから広告の訴求設計を行うディレクターです。あらゆる業界に対応します。以下のpattern_fit配分を監査し、**同じ訴求内容が全10スロット中3回以上出現している場合、2回以下に収まるように再配分**してください。
+
+【現在のpattern_fit】
+${JSON.stringify(analysis.pattern_fit || [], null, 2)}
+
+【検出された過剰出現アンカー語（3回以上）】
+${dominantWords.map(d => `- "${d.word}": ${d.count}回出現`).join('\n')}
+
+【LP要約】
+${(analysis.summary || '').slice(0, 2000)}
+
+【LPのサービススコープ】
+${JSON.stringify(analysis.service?.scope_boundaries || {}, null, 2)}
+
+【LPの訴求軸一覧】
+${JSON.stringify(analysis.messaging_angles || [], null, 2)}
+
+【再配分ルール（絶対遵守）】
+1. 全10スロット(5パターン × v1/v2)で、同じアンカー語の出現を最大2回までに抑える
+2. 同一パターン内のv1とv2は必ず異なる切り口にする
+3. 各パターンの心理適合（共感=痛み / 意外性=逆転 / 未完了=謎 / 危機感=損失 / 権威=実績）を維持
+4. LPに実在する訴求軸・機能・数値を使う（作り話禁止）
+5. LPが特定プロダクト中心の場合でも、切り口の「面」（痛み/時短/質/成果/実績/独自性/価格/使いやすさ/信頼/新前提）を分散させる
+6. 全10スロットで最低6つ以上の異なる面をカバー
+
+【出力形式】完全なpattern_fit配列を返す。説明文・コードブロック禁止。
+{
+  "pattern_fit": [
+    {"pattern_key":"empathy","score":数値,"rationale":"...","angle_v1":"...","angle_v2":"...","hook_seed_v1":"...","hook_seed_v2":"...","psychology_fit_reason":"..."},
+    ... 5パターン全部
+  ],
+  "distribution_check": {
+    "all_10_angles": "...",
+    "within_pattern_unique": "...",
+    "facet_distribution": "..."
+  }
+}`;
+}
+
+// LP分析後にアンカー語重複を検知→サイレント再配分
+async function rebalancePatternFit(inputs) {
+  const analysis = state.lpAnalysis;
+  if (!analysis?.pattern_fit?.length) return;
+
+  // 10スロット分のテキストを結合してアンカー語（2文字以上のカタカナ／英字）の出現を数える
+  const texts = [];
+  for (const pf of analysis.pattern_fit) {
+    if (pf.angle_v1) texts.push(pf.angle_v1);
+    if (pf.angle_v2) texts.push(pf.angle_v2);
+    if (pf.hook_seed_v1) texts.push(pf.hook_seed_v1);
+    if (pf.hook_seed_v2) texts.push(pf.hook_seed_v2);
+  }
+  const counts = {};
+  const tokenRe = /[A-Za-z][A-Za-z0-9\-]{1,}|[\u30A0-\u30FF]{2,}/g;
+  for (const t of texts) {
+    const seen = new Set();
+    for (const m of t.match(tokenRe) || []) {
+      const key = m.toUpperCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      counts[key] = (counts[key] || 0) + 1;
+    }
+  }
+  // angle_v1/v2 のみで重複判定（hook_seed 含めて二重カウントしないため、angle側のみ別途数え直す）
+  const angleCounts = {};
+  for (const pf of analysis.pattern_fit) {
+    for (const field of ['angle_v1','angle_v2']) {
+      const v = pf[field] || '';
+      const seen = new Set();
+      for (const m of v.match(tokenRe) || []) {
+        const key = m.toUpperCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        angleCounts[key] = (angleCounts[key] || 0) + 1;
+      }
+    }
+  }
+  const dominantWords = Object.entries(angleCounts)
+    .filter(([, c]) => c >= 3)
+    .map(([word, count]) => ({ word, count }));
+  if (dominantWords.length === 0) return; // 問題なし
+
+  const prompt = getEffectivePrompt('rebalance', buildRebalancePrompt(inputs, analysis, dominantWords));
+  const res = await callGemini(prompt, inputs, { temperature: 0.4, maxOutputTokens: 4096 });
+  if (res?.pattern_fit && Array.isArray(res.pattern_fit) && res.pattern_fit.length === 5) {
+    // 既存のscore/rationale/psychology_fit_reasonを保持してangle系のみマージ
+    // （再配分レスポンスがscoreを欠落させるケースでもスコア表示が消えないようにする）
+    const merged = res.pattern_fit.map(newPf => {
+      const original = analysis.pattern_fit.find(x => x.pattern_key === newPf.pattern_key) || {};
+      return {
+        ...original,
+        ...newPf,
+        score: (newPf.score !== undefined && newPf.score !== null && newPf.score !== '') ? newPf.score : original.score,
+        rationale: newPf.rationale || original.rationale,
+        psychology_fit_reason: newPf.psychology_fit_reason || original.psychology_fit_reason
+      };
+    });
+    state.lpAnalysis.pattern_fit = merged;
+    if (res.distribution_check) state.lpAnalysis.distribution_check = res.distribution_check;
+  }
+}
+
+// --- 訴求面分散監査プロンプト（編集可能） ---
+function buildDiversityPrompt(inputs, slots) {
+  const lpSummary = inputs.own_lp_summary || '';
+  return `あなたは広告ディレクターです。以下は同一LPから生成された複数パターンのHookです。訴求「面」が偏っていないかを監査し、3スロット以上同じ面に集中している場合は、3つ目以降を別の面に書き換えてください。
+
+【訴求面の分類例】
+痛み面／時短面／質面／成果面／実績面／独自性面／価格面／使いやすさ面／信頼面／新前提面 等
+
+【現在のHook一覧（${slots.length}スロット）】
+${slots.map((s, idx) => `[${idx}] パターン=${s.pattern_key}(${s.pattern_name}) v${s.idx+1} : "${s.hook}"`).join('\n')}
+
+【LP要約（参考）】
+${lpSummary.slice(0, 1500)}
+
+【監査タスク】
+1. 各Hookがどの面に属するか分類する
+2. 同じ面に3スロット以上集中している箇所を検出
+3. 集中箇所の3つ目以降を、LP内の別の面を使って書き直す
+4. 書き直しは元のパターン心理（共感/意外性/未完了/危機感/権威）を保つこと
+5. 文字数は16〜24字、「。」「．」禁止、独立完結文
+6. 集中していない面のHookはそのまま（変更しない）
+
+【出力形式】以下のJSONのみ。変更が必要なスロットだけ。説明文・コードブロック禁止。
+{
+  "rewrites": [
+    {"pattern_key": "empathy", "idx": 0, "new_hook": "書き直し文", "old_facet": "質面", "new_facet": "価格面", "reason": "質面が4つに集中していたため"}
+  ]
+}
+※1つも書き直し不要なら "rewrites": [] を返す`;
+}
+
+// 全パターン生成後の無音多様性監査：同じ訴求面が3スロット以上に集中していたら、3つ目以降を別の面に書き換える
+async function autoFixDiversity(inputs) {
+  const slots = [];
+  for (const p of PATTERNS) {
+    const r = state.results[p.key];
+    if (!r) continue;
+    for (let i = 0; i < 2; i++) {
+      const text = r.hook_1?.[i] || '';
+      if (text) slots.push({ pattern_key: p.key, pattern_name: p.name, idx: i, hook: text });
+    }
+  }
+  if (slots.length < 6) return;
+
+  const prompt = getEffectivePrompt('diversity', buildDiversityPrompt(inputs, slots));
+  const res = await callGemini(prompt, inputs);
+  if (!res || !Array.isArray(res.rewrites) || res.rewrites.length === 0) return;
+
+  for (const rw of res.rewrites) {
+    const t = rw.new_hook;
+    const len = clen(t);
+    if (!t || len < 16 || len > 24) continue;
+    const pr = state.results[rw.pattern_key];
+    if (!pr || !Array.isArray(pr.hook_1)) continue;
+    pr.hook_1[rw.idx] = t;
+  }
+}
+
+function addStatus(key, msg, kind) {
+  const status = document.getElementById('status-box');
+  const d = document.createElement('div');
+  d.className = `status status-${kind}`;
+  d.id = `st-${key}`;
+  d.textContent = msg;
+  status.appendChild(d);
+}
+function updateStatus(key, msg, kind) {
+  const d = document.getElementById(`st-${key}`);
+  if (d) { d.className = `status status-${kind}`; d.textContent = msg; }
+}
+
+// --- Sheet render ---
+function renderSheet() {
+  const inputs = getInputs();
+  const is40 = inputs.video_length === '40s';
+  const cols = is40
+    ? [['hook_1','Hook1',16,24],['hook_2','Hook2',16,24],['body_a_1','BodyA1',16,24],['body_a_2','BodyA2',16,24],['body_b_1','BodyB1',16,24],['body_b_2','BodyB2',16,24],['cta_1','CTA1',13,20],['cta_2','CTA2',13,20]]
+    : [['hook_1','Hook',16,24],['body_a_1','BodyA',16,24],['body_b_1','BodyB',16,24],['cta_1','CTA',13,20]];
+
+  let html = '<table><thead><tr><th>パターン</th><th>#</th>' + cols.map(c => `<th>${c[1]}<br><span style="font-size:10px;color:#888;">${c[2]}〜${c[3]}字</span></th>`).join('') + '<th>操作</th></tr></thead><tbody>';
+
+  // LP分析のスコア順で並べ替え（分析がなければPATTERNS定義順のまま）
+  const sortedPatterns = (() => {
+    const pf = state.lpAnalysis?.pattern_fit;
+    if (!pf?.length) return PATTERNS;
+    const sorted = pf.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    const ordered = sorted.map(s => PATTERNS.find(p => p.key === s.pattern_key)).filter(Boolean);
+    const remaining = PATTERNS.filter(p => !ordered.includes(p));
+    return [...ordered, ...remaining];
+  })();
+
+  for (const p of sortedPatterns) {
+    const r = state.results[p.key];
+    const count = r ? (r.hook_1?.length || 0) : 2;
+    for (let i = 0; i < 2; i++) {
+      html += `<tr class="${i===0?'pattern-group':''}">`;
+      if (i === 0) html += `<td rowspan="2" class="pattern-header">${p.name}</td>`;
+      html += `<td>v${i+1}</td>`;
+      for (const [key,label,min,max] of cols) {
+        const val = r?.[key]?.[i] || '';
+        const len = clen(val);
+        const ok = val && len >= min && len <= max;
+        const cls = val ? (ok ? 'char-ok' : 'char-ng') : 'char-ok';
+        html += `<td><span class="cell-content ${cls}" contenteditable data-pattern="${p.key}" data-key="${key}" data-idx="${i}" data-min="${min}" data-max="${max}">${escapeHtml(val)}</span><span class="cell-meta">${val?len+'字':'—'}</span></td>`;
+      }
+      html += `<td><button class="mini-btn" onclick="regenPattern('${p.key}')">↻再生成</button></td>`;
+      html += `</tr>`;
+    }
+  }
+  html += '</tbody></table>';
+  document.getElementById('sheet-wrap').innerHTML = html;
+
+  // attach live char count
+  document.querySelectorAll('[contenteditable]').forEach(el => {
+    el.oninput = () => {
+      const len = clen(el.textContent);
+      const min = +el.dataset.min, max = +el.dataset.max;
+      const ok = len >= min && len <= max;
+      el.className = 'cell-content ' + (ok ? 'char-ok' : 'char-ng');
+      el.nextElementSibling.textContent = len + '字';
+      // write back to state
+      const { pattern, key, idx } = el.dataset;
+      if (state.results[pattern]) state.results[pattern][key][+idx] = el.textContent;
+    };
+  });
+}
+
+window.regenPattern = async (key) => {
+  const inputs = getInputs();
+  if (!inputs.api_key) { alert('APIキーを入力してください'); return; }
+  const p = PATTERNS.find(x => x.key === key);
+  updateStatus(key, `${p.name} 再生成中...`, 'pending');
+  try {
+    const json = await callGemini(getEffectivePrompt(p.key, buildPrompt(p, inputs)), inputs);
+    state.results[key] = json;
+    updateStatus(key, `${p.name} 再生成完了`, 'ok');
+  } catch (e) {
+    updateStatus(key, `${p.name} エラー: ${e.message}`, 'err');
+  }
+  renderSheet();
+};
+
+document.getElementById('btn-show-prompt').onclick = () => switchTab('prompt');
+document.getElementById('btn-export-json').onclick = () => {
+  navigator.clipboard.writeText(JSON.stringify(state.results, null, 2));
+  alert('JSONをクリップボードにコピーしました');
+};
+// --- Critique & rewrite ---
+function criticInputs(inputs) {
+  const critic = inputs.critic_model === 'same' || !inputs.critic_model ? inputs.model : inputs.critic_model;
+  // Gemini 3 requires thinking mode; don't force 0
+  const budget = /gemini-3/.test(critic) ? '-1' : (inputs.gen_thinking_budget || '-1');
+  return { ...inputs, model: critic, gen_thinking_budget: budget };
+}
+
+async function critiquePattern(p, inputs) {
+  const r = state.results[p.key];
+  if (!r) throw new Error('生成結果がありません');
+  const prompt = getEffectivePrompt('critique', buildCritiquePrompt(p, r, inputs));
+  const json = await callGemini(prompt, criticInputs(inputs), { temperature: 0.3, maxOutputTokens: 4096 });
+  state.critiques[p.key] = json;
+  return json;
+}
+
+async function rewritePattern(p, inputs) {
+  const r = state.results[p.key];
+  const c = state.critiques[p.key];
+  if (!r || !c) throw new Error('批評結果がありません');
+  const prompt = getEffectivePrompt('rewrite', buildRewritePrompt(p, r, c, inputs));
+  const json = await callGemini(prompt, criticInputs(inputs));
+  if (!state.originals[p.key]) state.originals[p.key] = r;
+  state.results[p.key] = json;
+  return json;
+}
+
+document.getElementById('btn-critique-only').onclick = async () => {
+  const inputs = getInputs();
+  if (!inputs.api_key) { alert('APIキーを入力してください'); return; }
+  const status = document.getElementById('status-box');
+  status.innerHTML = '';
+  const tasks = PATTERNS.map(async p => {
+    if (!state.results[p.key]) return;
+    addStatus(p.key + '_crit', `${p.name} 批評中...`, 'pending');
+    try {
+      await critiquePattern(p, inputs);
+      updateStatus(p.key + '_crit', `${p.name} 批評完了`, 'ok');
+    } catch (e) {
+      updateStatus(p.key + '_crit', `${p.name} 批評エラー: ${e.message}`, 'err');
+    }
+    renderCritiques();
+  });
+  await Promise.all(tasks);
+};
+
+document.getElementById('btn-brushup').onclick = async () => {
+  const inputs = getInputs();
+  if (!inputs.api_key) { alert('APIキーを入力してください'); return; }
+  if (!confirm('全5パターンを批評→書き直しします。現在の結果は「元に戻す」で復元可能です。実行しますか？')) return;
+  const status = document.getElementById('status-box');
+  status.innerHTML = '';
+  const tasks = PATTERNS.map(async p => {
+    if (!state.results[p.key]) return;
+    addStatus(p.key + '_bu', `${p.name} 批評&書き直し中...`, 'pending');
+    try {
+      await critiquePattern(p, inputs);
+      await rewritePattern(p, inputs);
+      updateStatus(p.key + '_bu', `${p.name} ブラッシュアップ完了`, 'ok');
+    } catch (e) {
+      updateStatus(p.key + '_bu', `${p.name} エラー: ${e.message}`, 'err');
+    }
+    renderSheet();
+    renderCritiques();
+  });
+  await Promise.all(tasks);
+};
+
+function renderCritiques() {
+  const wrap = document.getElementById('critique-wrap');
+  if (!wrap) return;
+  const entries = PATTERNS.filter(p => state.critiques[p.key]);
+  if (entries.length === 0) { wrap.innerHTML = ''; return; }
+  let html = '<h2>🔍 批評結果</h2>';
+  for (const p of entries) {
+    const c = state.critiques[p.key];
+    const hasOrig = !!state.originals[p.key];
+    html += `
+      <details style="margin-bottom:8px;border:1px solid #e0e0e5;border-radius:8px;padding:8px 12px;">
+        <summary style="cursor:pointer;font-weight:600;font-size:13px;">
+          ${p.name} <span style="color:${c.overall_score>=70?'#155724':c.overall_score>=50?'#856404':'#721c24'};">総合スコア ${c.overall_score}/100</span>
+          ${hasOrig ? '<button class="mini-btn" onclick="revertPattern(\''+p.key+'\');event.stopPropagation();event.preventDefault();" style="margin-left:8px;">↶ 元に戻す</button>' : ''}
+        </summary>
+        <div style="font-size:12px;padding:8px 0;">
+          ${(c.variations||[]).map(v => `
+            <div style="margin-bottom:12px;padding:8px;background:#f5f5f7;border-radius:6px;">
+              <div style="font-weight:700;margin-bottom:4px;">v${v.index+1} — スコア ${v.score}/100</div>
+              ${v.weaknesses?.length ? '<div style="color:#721c24;"><b>弱点:</b><ul style="margin:4px 0;padding-left:20px;">' + v.weaknesses.map(w=>`<li>${escapeHtml(w)}</li>`).join('') + '</ul></div>' : ''}
+              ${v.strengths?.length ? '<div style="color:#155724;"><b>良い点:</b><ul style="margin:4px 0;padding-left:20px;">' + v.strengths.map(s=>`<li>${escapeHtml(s)}</li>`).join('') + '</ul></div>' : ''}
+            </div>
+          `).join('')}
+          ${c.improvement_directions?.length ? '<div style="background:#eef5ff;padding:8px;border-radius:6px;"><b>改善方向:</b><ul style="margin:4px 0;padding-left:20px;">' + c.improvement_directions.map(d=>`<li>${escapeHtml(d)}</li>`).join('') + '</ul></div>' : ''}
+        </div>
+      </details>
+    `;
+  }
+  wrap.innerHTML = html;
+}
+
+window.revertPattern = (key) => {
+  if (!state.originals[key]) return;
+  if (!confirm('書き直し前の結果に戻しますか？')) return;
+  state.results[key] = state.originals[key];
+  delete state.originals[key];
+  renderSheet();
+};
+
+document.getElementById('btn-retry-ng').onclick = async () => {
+  const inputs = getInputs();
+  const targets = [];
+  for (const p of PATTERNS) {
+    const r = state.results[p.key];
+    if (!r) { targets.push(p.key); continue; }
+    const cols = inputs.video_length === '40s'
+      ? [['hook_1',16,24],['hook_2',16,24],['body_a_1',16,24],['body_a_2',16,24],['body_b_1',16,24],['body_b_2',16,24],['cta_1',13,20],['cta_2',13,20]]
+      : [['hook_1',16,24],['body_a_1',16,24],['body_b_1',16,24],['cta_1',13,20]];
+    const hasNg = cols.some(([k,min,max]) => (r[k]||[]).some(v => v && (clen(v) < min || clen(v) > max)));
+    if (hasNg) targets.push(p.key);
+  }
+  if (targets.length === 0) { alert('違反セルはありません'); return; }
+  for (const k of targets) await regenPattern(k);
+};
+
+// Initial render
+renderPromptPreviews();
+renderSheet();
+renderLpAnalysis();
+</script>
+</body>
+</html>
