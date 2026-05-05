@@ -1,0 +1,53 @@
+name: Claude Auto-Implement (FB → PR)
+
+# Issue に `ai-implement` ラベルが付いたとき、Claude Code が自動で実装してPRを作る。
+# トリガーは「ラベル付与」だけ。FBで自動作成された Issue は、人がラベルを付けるまで実装されない。
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  implement:
+    if: contains(github.event.issue.labels.*.name, 'ai-implement')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 8 --model claude-sonnet-4-6"
+          prompt: |
+            GitHub Issue #${{ github.event.issue.number }} の内容に基づいて実装し、PRを作ってください。
+
+            ## 必ず最初にやること
+            1. CLAUDE.md を**全文読む**（プロジェクトの絶対ルール集）
+            2. index.html の関連箇所を読んで現状を把握する
+
+            ## 絶対に守ること
+            - CLAUDE.md「ユーザーの過去指摘NG例集」を再生産しない
+            - バリデーション関数（`enforce*`, `rebalance*`, `forceReassignUnusedAngles`, `autoFixDiversity`）の呼び出しチェーンを切らない（過去事故事例あり）
+            - 5パターン（empathy / paradigm / zeigarnik / loss / halo）の本質を弱めない
+            - 文字数制限（hook/body 16〜24字、cta 13〜20字）を破綻させる設計にしない
+            - halo の「〇〇ほど〇〇している」構文と、述語のコミット系縛りを保持する
+
+            ## PR の作り方
+            - 新しいブランチを切ってコミット
+            - PR タイトル: `[FB] <短い要約>`
+            - PR 本文に以下を必ず含める:
+              - **変更内容**: 何をどう変えたか
+              - **判断根拠**: CLAUDE.md のどのルールに従ったか
+              - **動作確認ポイント**: マージ前に人がチェックすべきこと
+              - `Closes #${{ github.event.issue.number }}` ← 自動Issueクローズ用
+
+            ## 実装が困難な場合
+            無理に実装せず、Issue にコメントで「なぜ難しいか / 人の判断が必要な点」を書いて止めてOK。
+
+            ## Issue 本文
+            ${{ github.event.issue.body }}
