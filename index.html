@@ -2834,5 +2834,131 @@ renderPromptPreviews();
 renderSheet();
 renderLpAnalysis();
 </script>
+
+<!-- Feedback Widget -->
+<style>
+  #fb-fab { position: fixed; bottom: 24px; right: 24px; z-index: 9000; background: #0071e3; color: #fff; border: none; border-radius: 999px; padding: 12px 20px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.18); font-family: inherit; }
+  #fb-fab:hover { background: #0058b8; }
+  #fb-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9100; display: none; align-items: center; justify-content: center; }
+  #fb-overlay.show { display: flex; }
+  #fb-modal { background: #fff; border-radius: 12px; padding: 24px; width: 90%; max-width: 480px; max-height: 90vh; overflow: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.3); font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; }
+  #fb-modal h3 { margin: 0 0 8px; font-size: 16px; color: #1d1d1f; }
+  #fb-modal p.fb-help { margin: 0 0 16px; font-size: 12px; color: #666; line-height: 1.5; }
+  #fb-modal label { display: block; font-size: 12px; font-weight: 600; margin: 12px 0 4px; color: #555; }
+  #fb-modal textarea, #fb-modal input { width: 100%; padding: 8px 10px; border: 1px solid #d2d2d7; border-radius: 8px; font-size: 13px; font-family: inherit; }
+  #fb-modal textarea { min-height: 120px; resize: vertical; }
+  #fb-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  #fb-actions button { padding: 10px 18px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  #fb-cancel { background: #e8e8ed; color: #1d1d1f; }
+  #fb-send { background: #0071e3; color: #fff; }
+  #fb-send:disabled { background: #999; cursor: not-allowed; }
+  #fb-status { margin-top: 12px; font-size: 12px; padding: 8px 12px; border-radius: 8px; display: none; line-height: 1.5; }
+  #fb-status.show { display: block; }
+  #fb-status.pending { background: #fff3cd; color: #856404; }
+  #fb-status.ok { background: #d4edda; color: #155724; }
+  #fb-status.err { background: #f8d7da; color: #721c24; }
+  #fb-status a { color: inherit; text-decoration: underline; font-weight: 600; }
+</style>
+
+<button id="fb-fab" type="button">FB送る</button>
+<div id="fb-overlay" role="dialog" aria-modal="true">
+  <div id="fb-modal">
+    <h3>フィードバックを送る</h3>
+    <p class="fb-help">気になった点・直したい文言・改善アイデア、自由に書いてOK。GitHubのIssueとして自動登録され、Claude Codeで対応されます。</p>
+    <label for="fb-text">フィードバック</label>
+    <textarea id="fb-text" placeholder="例: haloのv2がまだ機能説明っぽい。「成果を出す事業会社ほど〜」構文をもう一段強制したい"></textarea>
+    <label for="fb-reporter">名前（任意）</label>
+    <input id="fb-reporter" type="text" placeholder="誰のFBか追えるように">
+    <div id="fb-status"></div>
+    <div id="fb-actions">
+      <button id="fb-cancel" type="button">キャンセル</button>
+      <button id="fb-send" type="button">送信</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const WORKER_URL = 'https://prompt-upgrade-fb.so-47a.workers.dev';
+  const fab = document.getElementById('fb-fab');
+  const overlay = document.getElementById('fb-overlay');
+  const cancel = document.getElementById('fb-cancel');
+  const send = document.getElementById('fb-send');
+  const text = document.getElementById('fb-text');
+  const reporter = document.getElementById('fb-reporter');
+  const statusEl = document.getElementById('fb-status');
+
+  function setStatus(kind, html) {
+    statusEl.className = 'show ' + kind;
+    statusEl.innerHTML = html;
+  }
+  function clearStatus() { statusEl.className = ''; statusEl.textContent = ''; }
+  function openModal() {
+    overlay.classList.add('show');
+    clearStatus();
+    setTimeout(() => text.focus(), 50);
+  }
+  function closeModal() { overlay.classList.remove('show'); }
+
+  function collectContext() {
+    const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+    const ctx = {
+      page_url: location.href,
+      timestamp: new Date().toISOString(),
+      inputs: {
+        video_length: v('video_length'),
+        register_style: v('register_style'),
+        cta_type: v('cta_type'),
+        voice_style: v('voice_style'),
+        own_lp_url: v('own_lp_url'),
+        positioning_final: v('positioning_final'),
+      },
+    };
+    try {
+      if (typeof state !== 'undefined' && state && state.results) {
+        ctx.generated_patterns = Object.keys(state.results);
+      }
+    } catch (e) {}
+    return ctx;
+  }
+
+  async function submit() {
+    const fb = text.value.trim();
+    if (!fb) { setStatus('err', 'フィードバックを入力してください'); return; }
+    send.disabled = true;
+    setStatus('pending', '送信中...');
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          feedback: fb,
+          reporter: reporter.value.trim(),
+          context: collectContext(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        const url = String(data.issue_url || '').replace(/"/g, '');
+        const num = Number(data.issue_number) || 0;
+        setStatus('ok', `送信完了。<a href="${url}" target="_blank" rel="noopener">Issue #${num}</a> として登録されました。`);
+        text.value = '';
+        reporter.value = '';
+      } else {
+        throw new Error(data.error || ('HTTP ' + res.status));
+      }
+    } catch (e) {
+      setStatus('err', '送信失敗: ' + (e && e.message ? e.message : 'unknown'));
+    } finally {
+      send.disabled = false;
+    }
+  }
+
+  fab.addEventListener('click', openModal);
+  cancel.addEventListener('click', closeModal);
+  send.addEventListener('click', submit);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && overlay.classList.contains('show')) closeModal(); });
+})();
+</script>
 </body>
 </html>
